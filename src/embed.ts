@@ -209,6 +209,34 @@ function injectStyles() {
       font-size: 13px;
     }
 
+    .pyrepl-header-buttons {
+      display: flex;
+      gap: 4px;
+    }
+
+    .pyrepl-header-btn {
+      background: transparent;
+      border: none;
+      color: var(--pyrepl-header-title);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0.7;
+      transition: opacity 0.15s;
+    }
+
+    .pyrepl-header-btn:hover {
+      opacity: 1;
+    }
+
+    .pyrepl-header-btn svg {
+      width: 14px;
+      height: 14px;
+    }
+
     .pyrepl .xterm {
       padding: 8px 12px 12px 12px;
     }
@@ -250,6 +278,16 @@ async function createRepl(container: HTMLElement) {
     // Apply theme CSS variables for header styling
     applyThemeVariables(container, theme);
 
+    // Check if buttons should be shown (default: true)
+    const showButtons = container.dataset.buttons !== 'false';
+
+    // Custom title (default: "python")
+    const title = container.dataset.title || 'python';
+
+    // SVG icons
+    const copyIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
+    const clearIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>`;
+
     // Create header
     const header = document.createElement('div');
     header.className = 'pyrepl-header';
@@ -259,8 +297,13 @@ async function createRepl(container: HTMLElement) {
         <div class="pyrepl-header-dot yellow"></div>
         <div class="pyrepl-header-dot green"></div>
         </div>
-        <div class="pyrepl-header-title">python</div>
-        <div style="width: 48px"></div>
+        <div class="pyrepl-header-title">${title}</div>
+        ${showButtons ? `
+        <div class="pyrepl-header-buttons">
+            <button class="pyrepl-header-btn" data-action="copy" title="Copy output">${copyIcon}</button>
+            <button class="pyrepl-header-btn" data-action="clear" title="Clear terminal">${clearIcon}</button>
+        </div>
+        ` : '<div style="width: 48px"></div>'}
     `;
     container.appendChild(header);
 
@@ -315,6 +358,31 @@ async function createRepl(container: HTMLElement) {
             browserConsole.push_char(char.charCodeAt(0));
         }
     });
+
+    // Set up button handlers
+    if (showButtons) {
+        const copyBtn = header.querySelector('[data-action="copy"]');
+        const clearBtn = header.querySelector('[data-action="clear"]');
+
+        copyBtn?.addEventListener('click', () => {
+            // Get all terminal content
+            const buffer = term.buffer.active;
+            let text = '';
+            for (let i = 0; i < buffer.length; i++) {
+                const line = buffer.getLine(i);
+                if (line) {
+                    text += line.translateToString(true) + '\n';
+                }
+            }
+            navigator.clipboard.writeText(text.trimEnd());
+        });
+
+        clearBtn?.addEventListener('click', () => {
+            term.reset();
+            term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+            term.write('\x1b[32m>>> \x1b[0m');
+        });
+    }
 }
 
 
