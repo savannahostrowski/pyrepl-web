@@ -48,7 +48,10 @@ Supports...
 - Command history (up/down arrows)
 - Smart indentation
 - Keyboard shortcuts (Ctrl+L clear, Ctrl+C cancel)
-- Preload any PyPI packages
+- Preload PyPI packages
+- Preload and run a Python script on startup
+- Copy and clear buttons in the header
+- Custom header title
 - Multiple color themes (Catppuccin Mocha/Latte)
 
 ### Attributes
@@ -58,6 +61,7 @@ Supports...
 | `data-theme` | Color theme name (builtin or registered via `window.pyreplThemes`) | `catppuccin-mocha` |
 | `data-theme-config` | Inline JSON theme object for full customization | none |
 | `data-packages` | Comma-separated list of PyPI packages to preload | none |
+| `data-header` | Show the header bar (`true` or `false`) | `true` |
 | `data-buttons` | Show copy/clear buttons in header (`true` or `false`) | `true` |
 | `data-title` | Custom title in the header bar | `python` |
 | `data-src` | Path to a Python script to preload (runs silently, populates namespace) | none |

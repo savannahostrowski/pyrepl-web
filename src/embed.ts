@@ -38,6 +38,12 @@ declare global {
   interface Window {
     pyreplThemes?: Record<string, PyreplTheme>;
   }
+  // Globals exposed to Python via Pyodide
+  var term: Terminal;
+  var pyreplTheme: string;
+  var pyreplInfo: string;
+  var pyreplStartupScript: string | undefined;
+  var browserConsole: any;
 }
 
 let pyodidePromise: Promise<PyodideInterface> | null = null;
@@ -101,35 +107,66 @@ const builtinThemes: Record<string, PyreplTheme> = {
 
 const defaultTheme = 'catppuccin-mocha';
 
-// Resolve theme from various sources: inline JSON, global registry, or builtin
-function resolveTheme(container: HTMLElement): { theme: PyreplTheme; themeName: string } {
-  // 1. Check for inline theme config (data-theme-config with JSON)
+// SVG icons for header buttons
+const icons = {
+  copy: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`,
+  clear: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>`,
+};
+
+// Configuration parsed from data attributes
+interface PyreplConfig {
+  theme: PyreplTheme;
+  themeName: string;
+  showHeader: boolean;
+  showButtons: boolean;
+  title: string;
+  packages: string[];
+  src: string | null;
+}
+
+// Parse all configuration from container data attributes
+function parseConfig(container: HTMLElement): PyreplConfig {
+  // Resolve theme
+  let theme: PyreplTheme;
+  let themeName: string;
+
   const inlineConfig = container.dataset.themeConfig;
   if (inlineConfig) {
     try {
-      const parsed = JSON.parse(inlineConfig) as PyreplTheme;
-      return { theme: parsed, themeName: 'custom' };
+      theme = JSON.parse(inlineConfig) as PyreplTheme;
+      themeName = 'custom';
     } catch (e) {
       console.warn('pyrepl-web: invalid data-theme-config JSON, falling back to default');
+      theme = builtinThemes[defaultTheme]!;
+      themeName = defaultTheme;
+    }
+  } else {
+    themeName = container.dataset.theme || defaultTheme;
+    theme = window.pyreplThemes?.[themeName]
+      || builtinThemes[themeName]
+      || builtinThemes[defaultTheme]!;
+
+    if (!window.pyreplThemes?.[themeName] && !builtinThemes[themeName]) {
+      console.warn(`pyrepl-web: unknown theme "${themeName}", falling back to default`);
+      themeName = defaultTheme;
     }
   }
 
-  // 2. Check for theme name (data-theme)
-  const themeName = container.dataset.theme || defaultTheme;
+  // Parse packages
+  const packagesAttr = container.dataset.packages;
+  const packages = packagesAttr
+    ? packagesAttr.split(',').map(p => p.trim()).filter(Boolean)
+    : [];
 
-  // 3. Look up in global registry first (allows user overrides)
-  if (window.pyreplThemes?.[themeName]) {
-    return { theme: window.pyreplThemes[themeName], themeName };
-  }
-
-  // 4. Fall back to builtin themes
-  if (builtinThemes[themeName]) {
-    return { theme: builtinThemes[themeName], themeName };
-  }
-
-  // 5. Default fallback
-  console.warn(`pyrepl-web: unknown theme "${themeName}", falling back to default`);
-  return { theme: builtinThemes[defaultTheme]!, themeName: defaultTheme };
+  return {
+    theme,
+    themeName,
+    showHeader: container.dataset.header !== 'false',
+    showButtons: container.dataset.buttons !== 'false',
+    title: container.dataset.title || 'python',
+    packages,
+    src: container.dataset.src || null,
+  };
 }
 
 function getPyodide(): Promise<PyodideInterface> {
@@ -269,43 +306,37 @@ function applyThemeVariables(container: HTMLElement, theme: PyreplTheme) {
   container.style.setProperty('--pyrepl-shadow', shadow);
 }
 
-async function createRepl(container: HTMLElement) {
-    injectStyles();
-
-    // Resolve theme from various sources
-    const { theme, themeName } = resolveTheme(container);
-
-    // Apply theme CSS variables for header styling
-    applyThemeVariables(container, theme);
-
-    // Check if buttons should be shown (default: true)
-    const showButtons = container.dataset.buttons !== 'false';
-
-    // Custom title (default: "python")
-    const title = container.dataset.title || 'python';
-
-    // SVG icons
-    const copyIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
-    const clearIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>`;
-
-    // Create header
+function createHeader(config: PyreplConfig): HTMLElement {
     const header = document.createElement('div');
     header.className = 'pyrepl-header';
     header.innerHTML = `
         <div class="pyrepl-header-dots">
-        <div class="pyrepl-header-dot red"></div>
-        <div class="pyrepl-header-dot yellow"></div>
-        <div class="pyrepl-header-dot green"></div>
+            <div class="pyrepl-header-dot red"></div>
+            <div class="pyrepl-header-dot yellow"></div>
+            <div class="pyrepl-header-dot green"></div>
         </div>
-        <div class="pyrepl-header-title">${title}</div>
-        ${showButtons ? `
+        <div class="pyrepl-header-title">${config.title}</div>
+        ${config.showButtons ? `
         <div class="pyrepl-header-buttons">
-            <button class="pyrepl-header-btn" data-action="copy" title="Copy output">${copyIcon}</button>
-            <button class="pyrepl-header-btn" data-action="clear" title="Clear terminal">${clearIcon}</button>
+            <button class="pyrepl-header-btn" data-action="copy" title="Copy output">${icons.copy}</button>
+            <button class="pyrepl-header-btn" data-action="clear" title="Clear terminal">${icons.clear}</button>
         </div>
         ` : '<div style="width: 48px"></div>'}
     `;
-    container.appendChild(header);
+    return header;
+}
+
+async function createRepl(container: HTMLElement) {
+    injectStyles();
+
+    const config = parseConfig(container);
+
+    // Apply theme CSS variables for header styling
+    applyThemeVariables(container, config.theme);
+
+    if (config.showHeader) {
+        container.appendChild(createHeader(config));
+    }
 
     // Create terminal container
     const termContainer = document.createElement('div');
@@ -314,7 +345,7 @@ async function createRepl(container: HTMLElement) {
         cursorBlink: true,
         fontSize: 14,
         fontFamily: 'monospace',
-        theme,
+        theme: config.theme,
     });
     term.open(termContainer);
 
@@ -322,52 +353,43 @@ async function createRepl(container: HTMLElement) {
     await pyodide.loadPackage("micropip");
 
     // Preload packages if specified
-    const packages = container.dataset.packages;
-    const packageList = packages ? packages.split(',').map(p => p.trim()).filter(Boolean) : [];
-    if (packageList.length > 0) {
+    if (config.packages.length > 0) {
         const micropip = pyodide.pyimport("micropip");
-        await micropip.install(packageList);
+        await micropip.install(config.packages);
     }
 
     // Show loaded message (dim gray)
-    const loadedPkgs = packageList.length > 0 ? ` (installed packages: ${packageList.join(', ')})` : '';
+    const loadedPkgs = config.packages.length > 0 ? ` (installed packages: ${config.packages.join(', ')})` : '';
     const infoLine = `Python 3.13${loadedPkgs}`;
     term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
 
-    // Expose terminal to Python
-    (globalThis as any).term = term;
-    (globalThis as any).pyreplTheme = themeName;
-    (globalThis as any).pyreplInfo = infoLine;
+    // Expose globals to Python
+    globalThis.term = term;
+    globalThis.pyreplTheme = config.themeName;
+    globalThis.pyreplInfo = infoLine;
 
     // Pre-fetch startup script if specified (before starting REPL)
-    const scriptSrc = container.dataset.src;
-    if (scriptSrc) {
+    if (config.src) {
         try {
-            const scriptResponse = await fetch(scriptSrc);
-            if (scriptResponse.ok) {
-                const code = await scriptResponse.text();
-                (globalThis as any).pyreplStartupScript = code;
+            const response = await fetch(config.src);
+            if (response.ok) {
+                globalThis.pyreplStartupScript = await response.text();
             } else {
-                console.warn(`pyrepl-web: failed to fetch script from ${scriptSrc}`);
+                console.warn(`pyrepl-web: failed to fetch script from ${config.src}`);
             }
         } catch (e) {
-            console.warn(`pyrepl-web: error fetching script from ${scriptSrc}`, e);
+            console.warn(`pyrepl-web: error fetching script from ${config.src}`, e);
         }
     }
 
-    // Load the browser console code
-    const response = await fetch('/python/console.py');
-    const consoleCode = await response.text();
+    // Load and start the Python REPL
+    const consoleCode = await fetch('/python/console.py').then(r => r.text());
     pyodide.runPython(consoleCode);
-
-    // Start the REPL
     pyodide.runPythonAsync('await start_repl()');
 
-    // Get the BrowserConsole class
+    // Keep browserConsole reference alive for input handling
     const browserConsole = pyodide.globals.get('browser_console');
-
-    //Keep browserConsole alive
-    (globalThis as any).browserConsole = browserConsole;
+    globalThis.browserConsole = browserConsole;
 
     term.onData((data) => {
         for (const char of data) {
@@ -376,9 +398,9 @@ async function createRepl(container: HTMLElement) {
     });
 
     // Set up button handlers
-    if (showButtons) {
-        const copyBtn = header.querySelector('[data-action="copy"]');
-        const clearBtn = header.querySelector('[data-action="clear"]');
+    if (config.showHeader && config.showButtons) {
+        const copyBtn = container.querySelector('[data-action="copy"]');
+        const clearBtn = container.querySelector('[data-action="clear"]');
 
         copyBtn?.addEventListener('click', () => {
             // Get all terminal content

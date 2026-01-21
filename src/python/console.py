@@ -1,10 +1,13 @@
 from codeop import compile_command
 import sys
 from _pyrepl.console import Console, Event
-from _pyrepl.reader import Reader
 from collections import deque
 import js
 from pyodide.ffi import create_proxy
+
+# ANSI prompt strings
+PS1 = "\x1b[32m>>> \x1b[0m"
+PS2 = "\x1b[32m... \x1b[0m"
 
 
 
@@ -193,7 +196,7 @@ async def start_repl():
         match = re.search(r'[\w.]*$', line)
         return match.group(0) if match else ""
 
-    browser_console.term.write("\x1b[32m>>> \x1b[0m")
+    browser_console.term.write(PS1)
     lines = []
     current_line = ""
 
@@ -212,13 +215,13 @@ async def start_repl():
             lines = []
             current_line = ""
             history_index = len(history)
-            browser_console.term.write("\x1b[32m>>> \x1b[0m")
+            browser_console.term.write(PS1)
             continue
 
         if char == '\x0c':
             # Ctrl+L - clear screen
             clear()
-            browser_console.term.write("\x1b[32m>>> \x1b[0m" + syntax_highlight(current_line))
+            browser_console.term.write(PS1 + syntax_highlight(current_line))
             continue
 
         if char == '\x1b':
@@ -236,7 +239,7 @@ async def start_repl():
                             hist_entry = history[history_index]
                             # For multiline entries, only show first line
                             current_line = hist_entry.split('\n')[0] if '\n' in hist_entry else hist_entry
-                            browser_console.term.write("\x1b[32m>>> \x1b[0m" + syntax_highlight(current_line))
+                            browser_console.term.write(PS1 + syntax_highlight(current_line))
                     elif event3.data == 'B':
                         # Down arrow
                         if history:
@@ -249,7 +252,7 @@ async def start_repl():
                                 current_line = hist_entry.split('\n')[0] if '\n' in hist_entry else hist_entry
                             else:
                                 current_line = ""
-                            browser_console.term.write("\x1b[32m>>> \x1b[0m" + syntax_highlight(current_line))
+                            browser_console.term.write(PS1 + syntax_highlight(current_line))
                     # Left and Right arrows can be implemented similarly
             continue
 
@@ -262,7 +265,7 @@ async def start_repl():
             if not source.strip():
                 lines = []
                 current_line = ""
-                browser_console.term.write("\x1b[32m>>> \x1b[0m")
+                browser_console.term.write(PS1)
                 continue
 
             # If in multiline mode and user entered empty/whitespace line, execute
@@ -282,7 +285,7 @@ async def start_repl():
                     browser_console.term.write(f"\x1b[31m{type(e).__name__}: {e}\x1b[0m\r\n")
                 lines = []
                 current_line = ""
-                browser_console.term.write("\x1b[32m>>> \x1b[0m")
+                browser_console.term.write(PS1)
                 continue
             
             try:
@@ -293,7 +296,7 @@ async def start_repl():
                     indent = len(prev_line) - len(prev_line.lstrip())
                     if prev_line.rstrip().endswith(':'):
                         indent += 4
-                    browser_console.term.write("\x1b[32m... \x1b[0m" + " " * indent)
+                    browser_console.term.write(PS2 + " " * indent)
                     current_line = " " * indent
                 else:
                     # Complete code, execute it
@@ -308,17 +311,17 @@ async def start_repl():
                         browser_console.term.write(f"\x1b[31m{type(e).__name__}: {e}\x1b[0m\r\n")
                     lines = []
                     current_line = ""
-                    browser_console.term.write("\x1b[32m>>> \x1b[0m")
+                    browser_console.term.write(PS1)
             except SyntaxError as e:
                 browser_console.term.write(f"\x1b[31mSyntaxError: {e}\x1b[0m\r\n")
                 lines = []
                 current_line = ""
-                browser_console.term.write("\x1b[32m>>> \x1b[0m")
+                browser_console.term.write(PS1)
             except Exception as e:
                 browser_console.term.write(f"\x1b[31mError: {e}\x1b[0m\r\n")
                 lines = []
                 current_line = ""
-                browser_console.term.write("\x1b[32m>>> \x1b[0m")
+                browser_console.term.write(PS1)
         elif char == '\t':
             # Tab completion
             word = get_word_to_complete(current_line)
@@ -329,7 +332,7 @@ async def start_repl():
                     completion = completions[0]
                     current_line = current_line[:-len(word)] + completion
                     browser_console.term.write('\r\x1b[K')
-                    prompt = "\x1b[32m>>> \x1b[0m" if len(lines) == 0 else "\x1b[32m... \x1b[0m"
+                    prompt = PS1 if len(lines) == 0 else PS2
                     browser_console.term.write(prompt + syntax_highlight(current_line))
                 elif len(completions) > 1:
                     # Multiple matches - show them in columns
@@ -342,17 +345,17 @@ async def start_repl():
                             browser_console.term.write('\r\n')
                     if len(completions) % cols != 0:
                         browser_console.term.write('\r\n')
-                    prompt = "\x1b[32m>>> \x1b[0m" if len(lines) == 0 else "\x1b[32m... \x1b[0m"
+                    prompt = PS1 if len(lines) == 0 else PS2
                     browser_console.term.write(prompt + syntax_highlight(current_line))
         elif char == "\x7f":
             if current_line:
                 current_line = current_line[:-1]
                 browser_console.term.write('\r\x1b[K')
-                prompt = "\x1b[32m>>> \x1b[0m" if len(lines) == 0 else "\x1b[32m... \x1b[0m"
+                prompt = PS1 if len(lines) == 0 else PS2
                 browser_console.term.write(prompt + syntax_highlight(current_line))
         else:
             current_line += char
             # Clear line and rewrite with highlighting
             browser_console.term.write('\r\x1b[K')  # Go to start, clear line
-            prompt = "\x1b[32m>>> \x1b[0m" if len(lines) == 0 else "\x1b[32m... \x1b[0m"
+            prompt = PS1 if len(lines) == 0 else PS2
             browser_console.term.write(prompt + syntax_highlight(current_line))              
