@@ -2,11 +2,49 @@ import type { PyodideInterface } from "pyodide";
 import { loadPyodide } from "pyodide";
 import { Terminal } from '@xterm/xterm';
 
+// Theme interface for full customization
+export interface PyreplTheme {
+  // Terminal colors
+  background: string;
+  foreground: string;
+  cursor: string;
+  cursorAccent: string;
+  selectionBackground: string;
+  black: string;
+  red: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  magenta: string;
+  cyan: string;
+  white: string;
+  brightBlack: string;
+  brightRed: string;
+  brightGreen: string;
+  brightYellow: string;
+  brightBlue: string;
+  brightMagenta: string;
+  brightCyan: string;
+  brightWhite: string;
+  // Header colors (optional - will derive from terminal colors if not provided)
+  headerBackground?: string;
+  headerTitle?: string;
+  // Box shadow (optional)
+  shadow?: string;
+}
+
+// Global theme registry that users can add to
+declare global {
+  interface Window {
+    pyreplThemes?: Record<string, PyreplTheme>;
+  }
+}
+
 let pyodidePromise: Promise<PyodideInterface> | null = null;
 
 let currentOutput: Terminal | null = null;
 
-const themes = {
+const builtinThemes: Record<string, PyreplTheme> = {
   'catppuccin-mocha': {
     background: '#1e1e2e',
     foreground: '#cdd6f4',
@@ -29,6 +67,9 @@ const themes = {
     brightMagenta: '#f5c2e7',
     brightCyan: '#94e2d5',
     brightWhite: '#a6adc8',
+    headerBackground: '#181825',
+    headerTitle: '#6c7086',
+    shadow: '0 4px 24px rgba(0, 0, 0, 0.3)',
   },
   'catppuccin-latte': {
     background: '#eff1f5',
@@ -52,10 +93,44 @@ const themes = {
     brightMagenta: '#ea76cb',
     brightCyan: '#179299',
     brightWhite: '#bcc0cc',
+    headerBackground: '#dce0e8',
+    headerTitle: '#8c8fa1',
+    shadow: '0 4px 24px rgba(0, 0, 0, 0.08)',
   },
 };
 
 const defaultTheme = 'catppuccin-mocha';
+
+// Resolve theme from various sources: inline JSON, global registry, or builtin
+function resolveTheme(container: HTMLElement): { theme: PyreplTheme; themeName: string } {
+  // 1. Check for inline theme config (data-theme-config with JSON)
+  const inlineConfig = container.dataset.themeConfig;
+  if (inlineConfig) {
+    try {
+      const parsed = JSON.parse(inlineConfig) as PyreplTheme;
+      return { theme: parsed, themeName: 'custom' };
+    } catch (e) {
+      console.warn('pyrepl-web: invalid data-theme-config JSON, falling back to default');
+    }
+  }
+
+  // 2. Check for theme name (data-theme)
+  const themeName = container.dataset.theme || defaultTheme;
+
+  // 3. Look up in global registry first (allows user overrides)
+  if (window.pyreplThemes?.[themeName]) {
+    return { theme: window.pyreplThemes[themeName], themeName };
+  }
+
+  // 4. Fall back to builtin themes
+  if (builtinThemes[themeName]) {
+    return { theme: builtinThemes[themeName], themeName };
+  }
+
+  // 5. Default fallback
+  console.warn(`pyrepl-web: unknown theme "${themeName}", falling back to default`);
+  return { theme: builtinThemes[defaultTheme]!, themeName: defaultTheme };
+}
 
 function getPyodide(): Promise<PyodideInterface> {
     if (!pyodidePromise) {
@@ -100,40 +175,40 @@ function injectStyles() {
       display: inline-block;
       border-radius: 8px;
       overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+      box-shadow: var(--pyrepl-shadow);
     }
-    
+
     .pyrepl-header {
-      background: #181825;
+      background: var(--pyrepl-header-bg);
       padding: 8px 12px;
       display: flex;
       align-items: center;
       gap: 8px;
     }
-    
+
     .pyrepl-header-dots {
       display: flex;
       gap: 6px;
     }
-    
+
     .pyrepl-header-dot {
       width: 12px;
       height: 12px;
       border-radius: 50%;
     }
-    
-    .pyrepl-header-dot.red { background: #f38ba8; }
-    .pyrepl-header-dot.yellow { background: #f9e2af; }
-    .pyrepl-header-dot.green { background: #a6e3a1; }
-    
+
+    .pyrepl-header-dot.red { background: var(--pyrepl-red); }
+    .pyrepl-header-dot.yellow { background: var(--pyrepl-yellow); }
+    .pyrepl-header-dot.green { background: var(--pyrepl-green); }
+
     .pyrepl-header-title {
       flex: 1;
       text-align: center;
-      color: #6c7086;
+      color: var(--pyrepl-header-title);
       font-family: monospace;
       font-size: 13px;
     }
-    
+
     .pyrepl .xterm {
       padding: 8px 12px 12px 12px;
     }
@@ -144,14 +219,37 @@ function injectStyles() {
 
     .pyrepl .xterm-viewport {
       scrollbar-width: none;
+      background-color: var(--pyrepl-bg) !important;
     }
   `;
   document.head.appendChild(style);
 }
 
+// Apply theme CSS variables to a container
+function applyThemeVariables(container: HTMLElement, theme: PyreplTheme) {
+  // Derive header background from terminal background (slightly darker/lighter)
+  const headerBg = theme.headerBackground || theme.black;
+  const headerTitle = theme.headerTitle || theme.brightBlack;
+  const shadow = theme.shadow || '0 4px 24px rgba(0, 0, 0, 0.3)';
+
+  container.style.setProperty('--pyrepl-bg', theme.background);
+  container.style.setProperty('--pyrepl-header-bg', headerBg);
+  container.style.setProperty('--pyrepl-header-title', headerTitle);
+  container.style.setProperty('--pyrepl-red', theme.red);
+  container.style.setProperty('--pyrepl-yellow', theme.yellow);
+  container.style.setProperty('--pyrepl-green', theme.green);
+  container.style.setProperty('--pyrepl-shadow', shadow);
+}
+
 async function createRepl(container: HTMLElement) {
     injectStyles();
-  
+
+    // Resolve theme from various sources
+    const { theme, themeName } = resolveTheme(container);
+
+    // Apply theme CSS variables for header styling
+    applyThemeVariables(container, theme);
+
     // Create header
     const header = document.createElement('div');
     header.className = 'pyrepl-header';
@@ -165,18 +263,15 @@ async function createRepl(container: HTMLElement) {
         <div style="width: 48px"></div>
     `;
     container.appendChild(header);
-    
+
     // Create terminal container
     const termContainer = document.createElement('div');
     container.appendChild(termContainer);
-    const themeName = container.dataset.theme || defaultTheme;
-    const theme = themes[themeName as keyof typeof themes] || themes[defaultTheme];
     const term = new Terminal({
         cursorBlink: true,
         fontSize: 14,
         fontFamily: 'monospace',
         theme,
-
     });
     term.open(termContainer);
 
@@ -192,8 +287,8 @@ async function createRepl(container: HTMLElement) {
     }
 
     // Show loaded message (dim gray)
-    const loadedPkgs = packageList.length > 0 ? ` + ${packageList.join(', ')}` : '';
-    const infoLine = `Python 3.13 (Pyodide${loadedPkgs})`;
+    const loadedPkgs = packageList.length > 0 ? ` (installed packages: ${packageList.join(', ')})` : '';
+    const infoLine = `Python 3.13${loadedPkgs}`;
     term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
 
     // Expose terminal to Python
