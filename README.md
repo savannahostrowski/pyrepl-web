@@ -65,6 +65,7 @@ Supports...
 | `data-buttons` | Show copy/clear buttons in header (`true` or `false`) | `true` |
 | `data-title` | Custom title in the header bar | `python` |
 | `data-src` | Path to a Python script to preload (runs silently, populates namespace) | none |
+| `data-readonly` | Disable input, display only (`true` or `false`) | `false` |
 
 ### Custom Themes
 

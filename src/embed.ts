@@ -43,6 +43,7 @@ declare global {
   var pyreplTheme: string;
   var pyreplInfo: string;
   var pyreplStartupScript: string | undefined;
+  var pyreplReadonly: boolean;
   var browserConsole: any;
 }
 
@@ -122,6 +123,7 @@ interface PyreplConfig {
   title: string;
   packages: string[];
   src: string | null;
+  readonly: boolean;
 }
 
 // Parse all configuration from container data attributes
@@ -166,6 +168,7 @@ function parseConfig(container: HTMLElement): PyreplConfig {
     title: container.dataset.title || 'python',
     packages,
     src: container.dataset.src || null,
+    readonly: container.dataset.readonly === 'true',
   };
 }
 
@@ -342,10 +345,12 @@ async function createRepl(container: HTMLElement) {
     const termContainer = document.createElement('div');
     container.appendChild(termContainer);
     const term = new Terminal({
-        cursorBlink: true,
+        cursorBlink: !config.readonly,
+        cursorStyle: config.readonly ? 'bar' : 'block',
         fontSize: 14,
         fontFamily: 'monospace',
         theme: config.theme,
+        disableStdin: config.readonly,
     });
     term.open(termContainer);
 
@@ -367,6 +372,7 @@ async function createRepl(container: HTMLElement) {
     globalThis.term = term;
     globalThis.pyreplTheme = config.themeName;
     globalThis.pyreplInfo = infoLine;
+    globalThis.pyreplReadonly = config.readonly;
 
     // Pre-fetch startup script if specified (before starting REPL)
     if (config.src) {
@@ -391,11 +397,14 @@ async function createRepl(container: HTMLElement) {
     const browserConsole = pyodide.globals.get('browser_console');
     globalThis.browserConsole = browserConsole;
 
-    term.onData((data) => {
-        for (const char of data) {
-            browserConsole.push_char(char.charCodeAt(0));
-        }
-    });
+    // Only attach input handler if not readonly
+    if (!config.readonly) {
+        term.onData((data) => {
+            for (const char of data) {
+                browserConsole.push_char(char.charCodeAt(0));
+            }
+        });
+    }
 
     // Set up button handlers
     if (config.showHeader && config.showButtons) {

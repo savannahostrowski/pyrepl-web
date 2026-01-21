@@ -196,6 +196,10 @@ async def start_repl():
         match = re.search(r'[\w.]*$', line)
         return match.group(0) if match else ""
 
+    # In readonly mode, don't show prompt or accept input
+    if getattr(js, 'pyreplReadonly', False):
+        return
+
     browser_console.term.write(PS1)
     lines = []
     current_line = ""
