@@ -1,16 +1,16 @@
 import { readFileSync, writeFileSync } from "fs";
 
-// Read the Python code
+// Read the Python code and write it as a separate module
 const pythonCode = readFileSync("src/python/console.py", "utf-8");
+writeFileSync("src/console-code.ts", `export const CONSOLE_PY = ${JSON.stringify(pythonCode)};`);
 
 // Read the TypeScript source
 const tsSource = readFileSync("src/embed.ts", "utf-8");
 
-// Create a version with inlined Python
-const inlinedSource = tsSource.replace(
-  `const response = await fetch('/python/console.py');
-  const consoleCode = await response.text();`,
-  `const consoleCode = ${JSON.stringify(pythonCode)};`
+// Create a version that imports the Python code
+const inlinedSource = `import { CONSOLE_PY } from './console-code';\n` + tsSource.replace(
+  /const response = await fetch\('\/python\/console\.py'\);\s*const consoleCode = await response\.text\(\);/,
+  `const consoleCode = CONSOLE_PY;`
 );
 
 // Write temporary file
@@ -30,6 +30,7 @@ if (result.success) {
   console.error("Build failed:", result.logs);
 }
 
-// Clean up temp file
+// Clean up temp files
 import { unlinkSync } from "fs";
 unlinkSync("src/embed.build.ts");
+unlinkSync("src/console-code.ts");

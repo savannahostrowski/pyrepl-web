@@ -3,7 +3,7 @@ import sys
 from _pyrepl.console import Console, Event
 from _pyrepl.reader import Reader
 from collections import deque
-import js  # Pyodide's bridge to JavaScript
+import js
 from pyodide.ffi import create_proxy
 
 
@@ -194,7 +194,7 @@ async def start_repl():
                             # Clear current line
                             browser_console.term.write('\r\x1b[K')
                             current_line = history[history_index]
-                            browser_console.term.write("\x1b[32m>>> \x1b[0m" + current_line)
+                            browser_console.term.write("\x1b[32m>>> \x1b[0m" + syntax_highlight(current_line))
                     elif event3.data == 'B':
                         # Down arrow
                         if history:
@@ -205,7 +205,7 @@ async def start_repl():
                                 current_line = history[history_index]
                             else:
                                 current_line = ""
-                            browser_console.term.write("\x1b[32m>>> \x1b[0m" + current_line)
+                            browser_console.term.write("\x1b[32m>>> \x1b[0m" + syntax_highlight(current_line))
                     # Left and Right arrows can be implemented similarly
             continue
 
@@ -232,6 +232,8 @@ async def start_repl():
                     exec(code, repl_globals)
                     history.append(source)
                     history_index = len(history)
+                except SystemExit:
+                    pass
                 except Exception as e:
                     browser_console.term.write(f"\x1b[31m{type(e).__name__}: {e}\x1b[0m\r\n")
                 lines = []
@@ -256,6 +258,8 @@ async def start_repl():
                         history_index = len(history)
                     try:
                         exec(code, repl_globals)
+                    except SystemExit:
+                        pass
                     except Exception as e:
                         browser_console.term.write(f"\x1b[31m{type(e).__name__}: {e}\x1b[0m\r\n")
                     lines = []
