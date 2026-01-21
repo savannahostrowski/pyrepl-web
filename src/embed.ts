@@ -86,7 +86,13 @@ function init() {
 
 function injectStyles() {
   if (document.getElementById('pyrepl-styles')) return;
-  
+
+  // Inject xterm.js CSS from CDN
+  const xtermCss = document.createElement('link');
+  xtermCss.rel = 'stylesheet';
+  xtermCss.href = 'https://cdn.jsdelivr.net/npm/@xterm/xterm/css/xterm.css';
+  document.head.appendChild(xtermCss);
+
   const style = document.createElement('style');
   style.id = 'pyrepl-styles';
   style.textContent = `
@@ -173,21 +179,21 @@ async function createRepl(container: HTMLElement) {
 
     });
     term.open(termContainer);
-    term.write('Loading Pyodide...\r\n');
 
     const pyodide = await getPyodide();
     await pyodide.loadPackage("micropip");
 
     // Preload packages if specified
     const packages = container.dataset.packages;
-    if (packages) {
-        const packageList = packages.split(',').map(p => p.trim()).filter(Boolean);
-        if (packageList.length > 0) {
-            term.write(`Installing ${packageList.join(', ')}...\r\n`);
-            const micropip = pyodide.pyimport("micropip");
-            await micropip.install(packageList);
-        }
+    const packageList = packages ? packages.split(',').map(p => p.trim()).filter(Boolean) : [];
+    if (packageList.length > 0) {
+        const micropip = pyodide.pyimport("micropip");
+        await micropip.install(packageList);
     }
+
+    // Show loaded message (dim gray)
+    const loadedPkgs = packageList.length > 0 ? ` + ${packageList.join(', ')}` : '';
+    term.write(`\x1b[90mPython 3.13 (Pyodide${loadedPkgs})\x1b[0m\r\n`);
 
     // Expose terminal to Python
     (globalThis as any).term = term;
@@ -212,8 +218,6 @@ async function createRepl(container: HTMLElement) {
             browserConsole.push_char(char.charCodeAt(0));
         }
     });
-
-    term.write('Ready.\r\n');
 }
 
 

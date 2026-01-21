@@ -1,13 +1,37 @@
 {
   "name": "pyrepl-web",
-  "module": "index.ts",
+  "version": "0.1.0",
+  "description": "An embeddable web-based Python REPL, powered by Pyodide",
+  "main": "dist/pyrepl.js",
+  "files": [
+    "dist/pyrepl.js"
+  ],
+  "scripts": {
+    "dev": "bun run src/server.ts",
+    "build": "bun run build.ts"
+  },
+  "keywords": [
+    "python",
+    "repl",
+    "pyodide",
+    "wasm",
+    "webassembly",
+    "terminal",
+    "embed"
+  ],
+  "author": "Savannah Ostrowski <savannah@python.org>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/savannahostrowski/pyrepl-web"
+  },
+  "type": "module",
   "devDependencies": {
     "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
-  "type": "module",
   "dependencies": {
     "@xterm/xterm": "^6.0.0",
     "pyodide": "^0.29.1"
