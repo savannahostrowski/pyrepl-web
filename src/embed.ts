@@ -193,11 +193,13 @@ async function createRepl(container: HTMLElement) {
 
     // Show loaded message (dim gray)
     const loadedPkgs = packageList.length > 0 ? ` + ${packageList.join(', ')}` : '';
-    term.write(`\x1b[90mPython 3.13 (Pyodide${loadedPkgs})\x1b[0m\r\n`);
+    const infoLine = `Python 3.13 (Pyodide${loadedPkgs})`;
+    term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
 
     // Expose terminal to Python
     (globalThis as any).term = term;
     (globalThis as any).pyreplTheme = themeName;
+    (globalThis as any).pyreplInfo = infoLine;
 
     // Load the browser console code
     const response = await fetch('/python/console.py');

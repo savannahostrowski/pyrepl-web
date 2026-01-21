@@ -148,7 +148,18 @@ async def start_repl():
 
     sys.displayhook = displayhook
 
-    repl_globals = {"__builtins__": __builtins__}
+    def clear():
+        browser_console.clear()
+        info = getattr(js, "pyreplInfo", "Python 3.13 (Pyodide)")
+        browser_console.term.write(f"\x1b[90m{info}\x1b[0m\r\n")
+
+    class Exit:
+        def __repr__(self):
+            return "exit is not available in the browser"
+        def __call__(self):
+            browser_console.term.write("exit is not available in the browser\r\n")
+
+    repl_globals = {"__builtins__": __builtins__, "clear": clear, "exit": Exit(), "quit": Exit()}
     completer = rlcompleter.Completer(repl_globals)
 
     def get_completions(text):
@@ -193,7 +204,9 @@ async def start_repl():
                             history_index = max(0, history_index - 1)
                             # Clear current line
                             browser_console.term.write('\r\x1b[K')
-                            current_line = history[history_index]
+                            hist_entry = history[history_index]
+                            # For multiline entries, only show first line
+                            current_line = hist_entry.split('\n')[0] if '\n' in hist_entry else hist_entry
                             browser_console.term.write("\x1b[32m>>> \x1b[0m" + syntax_highlight(current_line))
                     elif event3.data == 'B':
                         # Down arrow
@@ -202,7 +215,9 @@ async def start_repl():
                             # Clear current line
                             browser_console.term.write('\r\x1b[K')
                             if history_index < len(history):
-                                current_line = history[history_index]
+                                hist_entry = history[history_index]
+                                # For multiline entries, only show first line
+                                current_line = hist_entry.split('\n')[0] if '\n' in hist_entry else hist_entry
                             else:
                                 current_line = ""
                             browser_console.term.write("\x1b[32m>>> \x1b[0m" + syntax_highlight(current_line))
