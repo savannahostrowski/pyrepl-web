@@ -39,7 +39,7 @@ Configure via `data-*` attributes:
 
 Supports...
 
-- Full Python 3.13 running in the browser via WebAssembly
+- Python 3.13 running in the browser via WebAssembly
 - Syntax highlighting with Pygments
 - Tab completion
 - Command history (up/down arrows)
