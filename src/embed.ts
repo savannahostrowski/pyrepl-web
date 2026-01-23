@@ -44,10 +44,11 @@ declare global {
   var pyreplInfo: string;
   var pyreplStartupScript: string | undefined;
   var pyreplReadonly: boolean;
-  var browserConsole: any;
+  var currentBrowserConsole: any;
 }
 
 let pyodidePromise: Promise<PyodideInterface> | null = null;
+let consoleCodePromise: Promise<string> | null = null;
 
 let currentOutput: Terminal | null = null;
 
@@ -191,6 +192,13 @@ function getPyodide(): Promise<PyodideInterface> {
     return pyodidePromise;
 }
 
+function getConsoleCode(): Promise<string> {
+  if (!consoleCodePromise) {
+    consoleCodePromise = fetch("/python/console.py").then((r) => r.text());
+  }
+  return consoleCodePromise;
+}
+
 function init() {
     if (document.readyState === "loading") {
         document.addEventListener("DOMContentLoaded", setup);
@@ -329,7 +337,8 @@ function createHeader(config: PyreplConfig): HTMLElement {
     return header;
 }
 
-async function createRepl(container: HTMLElement) {
+// Create terminal UI without initializing Python (fast, shows background immediately)
+function createTerminal(container: HTMLElement): { term: Terminal; config: PyreplConfig } {
     injectStyles();
 
     const config = parseConfig(container);
@@ -354,6 +363,10 @@ async function createRepl(container: HTMLElement) {
     });
     term.open(termContainer);
 
+    return { term, config };
+}
+
+async function createRepl(container: HTMLElement, term: Terminal, config: PyreplConfig) {
     const pyodide = await getPyodide();
     await pyodide.loadPackage("micropip");
 
@@ -389,13 +402,18 @@ async function createRepl(container: HTMLElement) {
     }
 
     // Load and start the Python REPL
-    const consoleCode = await fetch('/python/console.py').then(r => r.text());
+    const consoleCode = await getConsoleCode();
     pyodide.runPython(consoleCode);
-    pyodide.runPythonAsync('await start_repl()');
+    pyodide.runPythonAsync("await start_repl()");
 
-    // Keep browserConsole reference alive for input handling
-    const browserConsole = pyodide.globals.get('browser_console');
-    globalThis.browserConsole = browserConsole;
+    // Wait for Python to set currentBrowserConsole
+    while (!(globalThis as any).currentBrowserConsole) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    const browserConsole = (globalThis as any).currentBrowserConsole;
+
+    // Clear it so next REPL can set its own
+    (globalThis as any).currentBrowserConsole = null;
 
     // Only attach input handler if not readonly
     if (!config.readonly) {
@@ -441,7 +459,16 @@ async function setup() {
         return;
     }
 
-    containers.forEach(createRepl);
+    // Create all terminals first (fast, shows backgrounds immediately)
+    const repls = Array.from(containers).map(container => ({
+        container,
+        ...createTerminal(container)
+    }));
+
+    // Then initialize Python REPLs sequentially (avoids race conditions)
+    for (const { container, term, config } of repls) {
+        await createRepl(container, term, config);
+    }
 }
 
 init();
