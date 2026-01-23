@@ -110,10 +110,19 @@ class BrowserConsole(Console):
         pass
 
 
-browser_console = BrowserConsole(js.term)
-
-
 async def start_repl():
+    # Create a new console for this terminal instance
+    browser_console = BrowserConsole(js.term)
+
+    # Capture startup script before JS moves to next REPL and overwrites it
+    startup_script = getattr(js, "pyreplStartupScript", None)
+    theme_name = getattr(js, "pyreplTheme", "catppuccin-mocha")
+    info_line = getattr(js, "pyreplInfo", "Python 3.13 (Pyodide)")
+    readonly = getattr(js, "pyreplReadonly", False)
+
+    # Expose to JS so it can send input (signals JS can proceed to next REPL)
+    js.currentBrowserConsole = browser_console
+
     import micropip
     import rlcompleter
     import re
@@ -125,7 +134,6 @@ async def start_repl():
     from pygments.formatters import Terminal256Formatter
 
     lexer = Python3Lexer()
-    theme_name = getattr(js, "pyreplTheme", "catppuccin-mocha")
     formatter = Terminal256Formatter(style=theme_name)
 
     def syntax_highlight(code):
@@ -141,20 +149,32 @@ async def start_repl():
         def flush(self):
             pass
 
-    sys.stdout = TermWriter()
-    sys.stderr = TermWriter()
+    term_writer = TermWriter()
 
-    def displayhook(value):
-        if value is not None:
-            repl_globals["_"] = value
-            browser_console.term.write(repr(value) + "\r\n")
+    # Custom exec that redirects stdout/stderr to this REPL's terminal
+    import contextlib
 
-    sys.displayhook = displayhook
+    def exec_with_redirect(code, globals_dict):
+        old_displayhook = sys.displayhook
+
+        def displayhook(value):
+            if value is not None:
+                globals_dict["_"] = value
+                browser_console.term.write(repr(value) + "\r\n")
+
+        sys.displayhook = displayhook
+        try:
+            with (
+                contextlib.redirect_stdout(term_writer),
+                contextlib.redirect_stderr(term_writer),
+            ):
+                exec(code, globals_dict)
+        finally:
+            sys.displayhook = old_displayhook
 
     def clear():
         browser_console.clear()
-        info = getattr(js, "pyreplInfo", "Python 3.13 (Pyodide)")
-        browser_console.term.write(f"\x1b[90m{info}\x1b[0m\r\n")
+        browser_console.term.write(f"\x1b[90m{info_line}\x1b[0m\r\n")
 
     class Exit:
         def __repr__(self):
@@ -163,7 +183,6 @@ async def start_repl():
         def __call__(self):
             browser_console.term.write("exit is not available in the browser\r\n")
 
-    global repl_globals
     repl_globals = {
         "__builtins__": __builtins__,
         "clear": clear,
@@ -173,7 +192,6 @@ async def start_repl():
     completer = rlcompleter.Completer(repl_globals)
 
     # Run startup script if one was provided (silently, just to populate namespace)
-    startup_script = getattr(js, "pyreplStartupScript", None)
     if startup_script:
         try:
             # Temporarily suppress stdout/stderr during startup
@@ -207,7 +225,7 @@ async def start_repl():
         return match.group(0) if match else ""
 
     # In readonly mode, don't show prompt or accept input
-    if getattr(js, "pyreplReadonly", False):
+    if readonly:
         return
 
     browser_console.term.write(PS1)
@@ -302,7 +320,7 @@ async def start_repl():
                 source = "\n".join(lines)
                 try:
                     code = compile(source, "<console>", "single")
-                    exec(code, repl_globals)
+                    exec_with_redirect(code, repl_globals)
                     history.append(source)
                     history_index = len(history)
                 except SystemExit:
@@ -332,7 +350,7 @@ async def start_repl():
                         history.append(source)
                         history_index = len(history)
                     try:
-                        exec(code, repl_globals)
+                        exec_with_redirect(code, repl_globals)
                     except SystemExit:
                         pass
                     except Exception as e:
