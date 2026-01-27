@@ -135,7 +135,11 @@
       <div class="metrics">
         <div class="metric">
           <span>Initial Bundle:</span>
-          <span class="metric-value" id="size-after">23 KB (-97%)</span>
+          <span class="metric-value" id="size-after">257 B (-99.97%)</span>
+        </div>
+        <div class="metric">
+          <span>ESM Module:</span>
+          <span class="metric-value">23 KB (loads on demand)</span>
         </div>
         <div class="metric">
           <span>Script Load Time:</span>
@@ -191,7 +195,10 @@
         const script = document.createElement('script');
         script.id = `script-${version}`;
         script.src = scriptSrc;
-        script.type = 'module';
+        // Don't set type="module" for the new version - wrapper handles it
+        if (version === 'before') {
+          script.type = 'module';
+        }
 
         const scriptLoadStart = performance.now();
         script.onload = () => {

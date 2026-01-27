@@ -21,11 +21,11 @@ const inlinedSource =
 // Write temporary file
 writeFileSync("src/embed.build.ts", inlinedSource);
 
-// Bundle it
+// Bundle the ESM module
 const result = await Bun.build({
   entrypoints: ["src/embed.build.ts"],
   outdir: "dist",
-  naming: "pyrepl.js",
+  naming: "pyrepl.esm.js",
   minify: true,
   splitting: true, // Enable code splitting for dynamic imports
   target: "browser",
@@ -33,9 +33,27 @@ const result = await Bun.build({
 });
 
 if (result.success) {
-  console.log("Built dist/pyrepl.js");
+  console.log("Built dist/pyrepl.esm.js");
 } else {
   console.error("Build failed:", result.logs);
+  process.exit(1);
+}
+
+// Bundle the wrapper (IIFE format, no code splitting needed)
+const wrapperResult = await Bun.build({
+  entrypoints: ["src/wrapper.js"],
+  outdir: "dist",
+  naming: "pyrepl.js",
+  minify: true,
+  target: "browser",
+  format: "iife",
+});
+
+if (wrapperResult.success) {
+  console.log("Built dist/pyrepl.js (wrapper)");
+} else {
+  console.error("Wrapper build failed:", wrapperResult.logs);
+  process.exit(1);
 }
 
 // Clean up temp files
