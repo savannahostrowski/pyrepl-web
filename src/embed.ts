@@ -1,14 +1,24 @@
-import type { ITerminalOptions, ITheme } from "@xterm/xterm";
 import type { PyodideInterface } from "pyodide";
 
 // Re-export Terminal type for use throughout the file
 type Terminal = import("@xterm/xterm").Terminal;
 
-// Theme interface for full customization
+// Simplified theme interface - users only need to specify what they want to customize
 export interface PyreplTheme {
-  // Terminal colors
+  // Required: basic colors
   background: string;
   foreground: string;
+  // Optional: header colors (defaults derived from background/foreground)
+  headerBackground?: string;
+  headerForeground?: string;
+  // Optional: prompt color - hex or ANSI name (default: green)
+  promptColor?: string;
+  // Optional: custom syntax highlighting styles (Pygments token -> color)
+  pygmentsStyle?: Record<string, string>;
+}
+
+// Internal full theme with all xterm.js colors resolved
+interface FullTheme extends PyreplTheme {
   cursor: string;
   cursorAccent: string;
   selectionBackground: string;
@@ -28,11 +38,6 @@ export interface PyreplTheme {
   brightMagenta: string;
   brightCyan: string;
   brightWhite: string;
-  // Header colors (optional - will derive from terminal colors if not provided)
-  headerBackground?: string;
-  headerTitle?: string;
-  // Box shadow (optional)
-  shadow?: string;
 }
 
 // Global theme registry that users can add to
@@ -43,18 +48,24 @@ declare global {
   // Globals exposed to Python via Pyodide
   var term: Terminal;
   var pyreplTheme: string;
+  var pyreplPygmentsFallback: string;
   var pyreplInfo: string;
   var pyreplStartupScript: string | undefined;
   var pyreplReadonly: boolean;
+  var pyreplPromptColor: string;
+  var pyreplPygmentsStyle: Record<string, string> | undefined;
+  // biome-ignore lint/suspicious/noExplicitAny: Python console from Pyodide
   var currentBrowserConsole: any;
 }
 
 let pyodidePromise: Promise<PyodideInterface> | null = null;
 let consoleCodePromise: Promise<string> | null = null;
 
-const currentOutput: Terminal | null = null;
+// Queue to serialize REPL initialization (they share globals)
+let initQueue: Promise<void> = Promise.resolve();
 
-const builtinThemes: Record<string, PyreplTheme> = {
+// Full builtin themes with all ANSI colors
+const builtinThemes: Record<string, FullTheme> = {
   "catppuccin-mocha": {
     background: "#1e1e2e",
     foreground: "#cdd6f4",
@@ -78,8 +89,7 @@ const builtinThemes: Record<string, PyreplTheme> = {
     brightCyan: "#94e2d5",
     brightWhite: "#a6adc8",
     headerBackground: "#181825",
-    headerTitle: "#6c7086",
-    shadow: "0 4px 24px rgba(0, 0, 0, 0.3)",
+    headerForeground: "#6c7086",
   },
   "catppuccin-latte": {
     background: "#eff1f5",
@@ -104,12 +114,71 @@ const builtinThemes: Record<string, PyreplTheme> = {
     brightCyan: "#179299",
     brightWhite: "#bcc0cc",
     headerBackground: "#dce0e8",
-    headerTitle: "#8c8fa1",
-    shadow: "0 4px 24px rgba(0, 0, 0, 0.08)",
+    headerForeground: "#8c8fa1",
   },
 };
 
 const defaultTheme = "catppuccin-mocha";
+
+// Determine if a color is "dark" based on luminance
+function isDarkColor(hex: string): boolean {
+  // Handle non-hex colors by assuming dark
+  if (!hex.startsWith("#")) return true;
+  const rgb = hex.slice(1);
+  const r = parseInt(rgb.slice(0, 2), 16);
+  const g = parseInt(rgb.slice(2, 4), 16);
+  const b = parseInt(rgb.slice(4, 6), 16);
+  // Relative luminance formula
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance < 0.5;
+}
+
+// Resolve a partial theme to a full theme by merging with appropriate base
+function resolveTheme(theme: PyreplTheme | FullTheme): FullTheme {
+  // If it's already a full theme (has ANSI colors), return as-is
+  if ("black" in theme && "red" in theme) {
+    return theme as FullTheme;
+  }
+
+  // Pick base theme based on background luminance
+  const baseThemeName = isDarkColor(theme.background)
+    ? "catppuccin-mocha"
+    : "catppuccin-latte";
+  const base = builtinThemes[baseThemeName] as FullTheme;
+
+  // Merge user theme with base, preserving all base ANSI colors
+  const resolved: FullTheme = {
+    // All ANSI colors from base
+    cursor: base.cursor,
+    cursorAccent: base.cursorAccent,
+    selectionBackground: base.selectionBackground,
+    black: base.black,
+    red: base.red,
+    green: base.green,
+    yellow: base.yellow,
+    blue: base.blue,
+    magenta: base.magenta,
+    cyan: base.cyan,
+    white: base.white,
+    brightBlack: base.brightBlack,
+    brightRed: base.brightRed,
+    brightGreen: base.brightGreen,
+    brightYellow: base.brightYellow,
+    brightBlue: base.brightBlue,
+    brightMagenta: base.brightMagenta,
+    brightCyan: base.brightCyan,
+    brightWhite: base.brightWhite,
+    // User-provided colors
+    background: theme.background,
+    foreground: theme.foreground,
+    headerBackground: theme.headerBackground ?? base.headerBackground,
+    headerForeground: theme.headerForeground ?? base.headerForeground,
+    promptColor: theme.promptColor,
+    pygmentsStyle: theme.pygmentsStyle,
+  };
+
+  return resolved;
+}
 
 // SVG icons for header buttons
 const icons = {
@@ -119,7 +188,7 @@ const icons = {
 
 // Configuration parsed from data attributes
 interface PyreplConfig {
-  theme: PyreplTheme;
+  theme: FullTheme;
   themeName: string;
   showHeader: boolean;
   showButtons: boolean;
@@ -132,27 +201,29 @@ interface PyreplConfig {
 // Parse all configuration from container data attributes
 function parseConfig(container: HTMLElement): PyreplConfig {
   // Resolve theme
-  let theme: PyreplTheme;
+  let theme: FullTheme;
   let themeName: string;
 
   const inlineConfig = container.dataset.themeConfig;
   if (inlineConfig) {
     try {
-      theme = JSON.parse(inlineConfig) as PyreplTheme;
+      const parsed = JSON.parse(inlineConfig) as PyreplTheme;
+      theme = resolveTheme(parsed);
       themeName = "custom";
-    } catch (e) {
+    } catch {
       console.warn(
         "pyrepl-web: invalid data-theme-config JSON, falling back to default",
       );
-      theme = builtinThemes[defaultTheme]!;
+      theme = builtinThemes[defaultTheme] as FullTheme;
       themeName = defaultTheme;
     }
   } else {
     themeName = container.dataset.theme || defaultTheme;
-    theme =
+    const rawTheme =
       window.pyreplThemes?.[themeName] ||
       builtinThemes[themeName] ||
-      builtinThemes[defaultTheme]!;
+      (builtinThemes[defaultTheme] as FullTheme);
+    theme = resolveTheme(rawTheme);
 
     if (!window.pyreplThemes?.[themeName] && !builtinThemes[themeName]) {
       console.warn(
@@ -188,16 +259,9 @@ async function getPyodide(): Promise<PyodideInterface> {
     const { loadPyodide } = await import("pyodide");
     pyodidePromise = loadPyodide({
       indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.2/full/",
-      stdout: (text: string) => {
-        if (currentOutput) {
-          currentOutput.write(text + "\r\n");
-        }
-      },
-      stderr: (text: string) => {
-        if (currentOutput) {
-          currentOutput.write(text + "\r\n");
-        }
-      },
+      // Suppress Pyodide's internal logging (Loading/Loaded messages)
+      stdout: () => {},
+      stderr: () => {},
     });
   }
   return await pyodidePromise;
@@ -208,6 +272,58 @@ function getConsoleCode(): Promise<string> {
     consoleCodePromise = fetch("/python/console.py").then((r) => r.text());
   }
   return consoleCodePromise;
+}
+
+export class PyReplEmbed {
+  private container: HTMLElement;
+  private theme: string;
+  private packages: string[];
+  private readonly: boolean;
+  private src: string | undefined;
+  private showHeader: boolean;
+  private showButtons: boolean;
+  private title: string;
+
+  constructor(config: {
+    container: HTMLElement;
+    theme?: string;
+    packages?: string[];
+    readonly?: boolean;
+    src?: string;
+    showHeader?: boolean;
+    showButtons?: boolean;
+    title?: string;
+  }) {
+    this.container = config.container;
+    this.theme = config.theme || defaultTheme;
+    this.packages = config.packages || [];
+    this.readonly = config.readonly || false;
+    this.src = config.src;
+    this.showHeader =
+      config.showHeader !== undefined ? config.showHeader : true;
+    this.showButtons =
+      config.showButtons !== undefined ? config.showButtons : true;
+    this.title = config.title || "python";
+  }
+
+  async init() {
+    this.container.dataset.theme = this.theme;
+    this.container.dataset.packages = this.packages.join(",");
+    this.container.dataset.readonly = this.readonly ? "true" : "false";
+    if (this.src) {
+      this.container.dataset.src = this.src;
+    }
+    this.container.dataset.header = this.showHeader ? "true" : "false";
+    this.container.dataset.buttons = this.showButtons ? "true" : "false";
+    this.container.dataset.title = this.title;
+
+    // Create terminal immediately (fast, shows UI)
+    const { term, config } = await createTerminal(this.container);
+
+    // Queue the Python REPL initialization to avoid race conditions with shared globals
+    initQueue = initQueue.then(() => createRepl(this.container, term, config));
+    await initQueue;
+  }
 }
 
 function init() {
@@ -313,42 +429,56 @@ function injectStyles() {
 }
 
 // Apply theme CSS variables to a container
-function applyThemeVariables(container: HTMLElement, theme: PyreplTheme) {
-  // Derive header background from terminal background (slightly darker/lighter)
+function applyThemeVariables(container: HTMLElement, theme: FullTheme) {
   const headerBg = theme.headerBackground || theme.black;
-  const headerTitle = theme.headerTitle || theme.brightBlack;
-  const shadow = theme.shadow || "0 4px 24px rgba(0, 0, 0, 0.3)";
+  const headerFg = theme.headerForeground || theme.brightBlack;
 
   container.style.setProperty("--pyrepl-bg", theme.background);
   container.style.setProperty("--pyrepl-header-bg", headerBg);
-  container.style.setProperty("--pyrepl-header-title", headerTitle);
+  container.style.setProperty("--pyrepl-header-title", headerFg);
   container.style.setProperty("--pyrepl-red", theme.red);
   container.style.setProperty("--pyrepl-yellow", theme.yellow);
   container.style.setProperty("--pyrepl-green", theme.green);
-  container.style.setProperty("--pyrepl-shadow", shadow);
+  container.style.setProperty(
+    "--pyrepl-shadow",
+    "0 4px 24px rgba(0, 0, 0, 0.3)",
+  );
 }
 
 function createHeader(config: PyreplConfig): HTMLElement {
   const header = document.createElement("div");
   header.className = "pyrepl-header";
-  header.innerHTML = `
-        <div class="pyrepl-header-dots">
-            <div class="pyrepl-header-dot red"></div>
-            <div class="pyrepl-header-dot yellow"></div>
-            <div class="pyrepl-header-dot green"></div>
-        </div>
-        <div class="pyrepl-header-title">${config.title}</div>
-        ${
-          config.showButtons
-            ? `
-        <div class="pyrepl-header-buttons">
-            <button class="pyrepl-header-btn" data-action="copy" title="Copy output">${icons.copy}</button>
-            <button class="pyrepl-header-btn" data-action="clear" title="Clear terminal">${icons.clear}</button>
-        </div>
-        `
-            : '<div style="width: 48px"></div>'
-        }
+
+  // Build header with safe text content (avoid XSS)
+  const dots = document.createElement("div");
+  dots.className = "pyrepl-header-dots";
+  dots.innerHTML = `
+    <div class="pyrepl-header-dot red"></div>
+    <div class="pyrepl-header-dot yellow"></div>
+    <div class="pyrepl-header-dot green"></div>
+  `;
+
+  const title = document.createElement("div");
+  title.className = "pyrepl-header-title";
+  title.textContent = config.title; // Safe: textContent escapes HTML
+
+  header.appendChild(dots);
+  header.appendChild(title);
+
+  if (config.showButtons) {
+    const buttons = document.createElement("div");
+    buttons.className = "pyrepl-header-buttons";
+    buttons.innerHTML = `
+      <button class="pyrepl-header-btn" data-action="copy" title="Copy output">${icons.copy}</button>
+      <button class="pyrepl-header-btn" data-action="clear" title="Clear terminal">${icons.clear}</button>
     `;
+    header.appendChild(buttons);
+  } else {
+    const spacer = document.createElement("div");
+    spacer.style.width = "48px";
+    header.appendChild(spacer);
+  }
+
   return header;
 }
 
@@ -411,8 +541,13 @@ async function createRepl(
   // Expose globals to Python
   globalThis.term = term;
   globalThis.pyreplTheme = config.themeName;
+  globalThis.pyreplPygmentsFallback = isDarkColor(config.theme.background)
+    ? "catppuccin-mocha"
+    : "catppuccin-latte";
   globalThis.pyreplInfo = infoLine;
   globalThis.pyreplReadonly = config.readonly;
+  globalThis.pyreplPromptColor = config.theme.promptColor || "green";
+  globalThis.pyreplPygmentsStyle = config.theme.pygmentsStyle;
 
   // Pre-fetch startup script if specified (before starting REPL)
   if (config.src) {
@@ -434,13 +569,25 @@ async function createRepl(
   pyodide.runPythonAsync("await start_repl()");
 
   // Wait for Python to set currentBrowserConsole
+  // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   while (!(globalThis as any).currentBrowserConsole) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
+  // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   const browserConsole = (globalThis as any).currentBrowserConsole;
 
-  // Clear it so next REPL can set its own
+  // Clear globals so next REPL starts fresh
+  // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   (globalThis as any).currentBrowserConsole = null;
+  // biome-ignore lint/suspicious/noExplicitAny: Python-set global
+  (globalThis as any).term = null;
+  globalThis.pyreplStartupScript = undefined;
+  globalThis.pyreplTheme = "";
+  globalThis.pyreplPygmentsFallback = "";
+  globalThis.pyreplInfo = "";
+  globalThis.pyreplReadonly = false;
+  globalThis.pyreplPromptColor = "";
+  globalThis.pyreplPygmentsStyle = undefined;
 
   // Only attach input handler if not readonly
   if (!config.readonly) {
@@ -463,7 +610,7 @@ async function createRepl(
       for (let i = 0; i < buffer.length; i++) {
         const line = buffer.getLine(i);
         if (line) {
-          text += line.translateToString(true) + "\n";
+          text += `${line.translateToString(true)}\n`;
         }
       }
       navigator.clipboard.writeText(text.trimEnd());
@@ -478,11 +625,20 @@ async function createRepl(
 }
 
 async function setup() {
-  const containers = document.querySelectorAll<HTMLElement>(".pyrepl");
+  // Find .pyrepl elements that are NOT inside a <py-repl> web component
+  // and haven't already been initialized
+  const allContainers = document.querySelectorAll<HTMLElement>(".pyrepl");
+  const containers = Array.from(allContainers).filter(
+    (el) => !el.closest("py-repl") && !el.dataset.pyreplInitialized,
+  );
 
   if (containers.length === 0) {
-    console.warn("pyrepl-web: no .pyrepl elements found");
     return;
+  }
+
+  // Mark containers as initialized to prevent double init
+  for (const el of containers) {
+    el.dataset.pyreplInitialized = "true";
   }
 
   // Create all terminals first (fast, shows backgrounds immediately)
@@ -493,10 +649,11 @@ async function setup() {
     })),
   );
 
-  // Then initialize Python REPLs sequentially (avoids race conditions)
+  // Queue Python REPL initialization to avoid race conditions with shared globals
   for (const { container, term, config } of repls) {
-    await createRepl(container, term, config);
+    initQueue = initQueue.then(() => createRepl(container, term, config));
   }
+  await initQueue;
 }
 
 init();

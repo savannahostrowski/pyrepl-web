@@ -1,6 +1,6 @@
 {
   "name": "pyrepl-web",
-  "version": "0.1.13",
+  "version": "0.2.0",
   "description": "An embeddable Python REPL powered by Pyodide",
   "main": "dist/pyrepl.js",
   "files": [
@@ -44,6 +44,7 @@
   },
   "dependencies": {
     "@xterm/xterm": "^6.0.0",
+    "lit": "^3.3.2",
     "pyodide": "^0.29.2"
   }
 }

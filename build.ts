@@ -1,4 +1,4 @@
-import { readFileSync, unlinkSync, writeFileSync } from "fs";
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
 
 // Read package.json to get Pyodide version
 const pkg = JSON.parse(readFileSync("package.json", "utf-8"));
@@ -52,9 +52,19 @@ function prepareWrapperSource(): string {
   return injectPyodideVersion(wrapperSource);
 }
 
+function prepareComponentSource(): string {
+  const componentSource = readFileSync("src/component.ts", "utf-8");
+  // Update import to point to build version of embed
+  return componentSource.replace(
+    /from ['"]\.\/embed\.js['"]/,
+    `from './embed.build.js'`,
+  );
+}
+
 // Clean up temporary build files
 function cleanup() {
   unlinkSync("src/embed.build.ts");
+  unlinkSync("src/component.build.ts");
   unlinkSync("src/wrapper.build.js");
   unlinkSync("src/console-code.ts");
 }
@@ -68,18 +78,24 @@ async function build() {
   const embedSource = prepareEmbedSource();
   writeFileSync("src/embed.build.ts", embedSource);
 
+  const componentSource = prepareComponentSource();
+  writeFileSync("src/component.build.ts", componentSource);
+
   const wrapperSource = prepareWrapperSource();
   writeFileSync("src/wrapper.build.js", wrapperSource);
 
   // Bundle the ESM module
   const esmResult = await Bun.build({
-    entrypoints: ["src/embed.build.ts"],
+    entrypoints: ["src/component.build.ts"],
     outdir: "dist",
     naming: "pyrepl.esm.js",
     minify: true,
     splitting: true,
     target: "browser",
     format: "esm",
+    define: {
+      "process.env.NODE_ENV": '"production"',
+    },
   });
 
   if (!esmResult.success) {

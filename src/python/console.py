@@ -5,9 +5,38 @@ from collections import deque
 import js
 from pyodide.ffi import create_proxy
 
-# ANSI prompt strings
-PS1 = "\x1b[32m>>> \x1b[0m"
-PS2 = "\x1b[32m... \x1b[0m"
+# ANSI color codes
+ANSI_COLORS = {
+    "black": "30",
+    "red": "31",
+    "green": "32",
+    "yellow": "33",
+    "blue": "34",
+    "magenta": "35",
+    "cyan": "36",
+    "white": "37",
+}
+
+
+def color_to_ansi(color):
+    """Convert a color name or hex value to ANSI escape sequence."""
+    if color.startswith("#"):
+        # Parse hex color (supports #RGB and #RRGGBB)
+        hex_val = color[1:]
+        if len(hex_val) == 3:
+            r = int(hex_val[0] * 2, 16)
+            g = int(hex_val[1] * 2, 16)
+            b = int(hex_val[2] * 2, 16)
+        elif len(hex_val) == 6:
+            r = int(hex_val[0:2], 16)
+            g = int(hex_val[2:4], 16)
+            b = int(hex_val[4:6], 16)
+        else:
+            return "32"  # Fall back to green
+        # Use 24-bit true color: \x1b[38;2;R;G;Bm
+        return f"38;2;{r};{g};{b}"
+    else:
+        return ANSI_COLORS.get(color, "32")
 
 
 class BrowserConsole(Console):
@@ -25,15 +54,12 @@ class BrowserConsole(Console):
         return self.term.rows, self.term.cols
 
     def refresh(self, screen, xy):
-        # TODO: redraw screen
         pass
 
     def prepare(self):
-        # TODO: setup
         pass
 
     def restore(self):
-        # TODO: teardown
         pass
 
     def move_cursor(self, x, y):
@@ -117,8 +143,16 @@ async def start_repl():
     # Capture startup script before JS moves to next REPL and overwrites it
     startup_script = getattr(js, "pyreplStartupScript", None)
     theme_name = getattr(js, "pyreplTheme", "catppuccin-mocha")
+    pygments_fallback = getattr(js, "pyreplPygmentsFallback", "catppuccin-mocha")
     info_line = getattr(js, "pyreplInfo", "Python 3.13 (Pyodide)")
     readonly = getattr(js, "pyreplReadonly", False)
+    prompt_color = getattr(js, "pyreplPromptColor", None) or "green"
+    pygments_style_js = getattr(js, "pyreplPygmentsStyle", None)
+
+    # Build prompt strings with configured color
+    color_code = color_to_ansi(prompt_color)
+    PS1 = f"\x1b[{color_code}m>>> \x1b[0m"
+    PS2 = f"\x1b[{color_code}m... \x1b[0m"
 
     # Expose to JS so it can send input (signals JS can proceed to next REPL)
     js.currentBrowserConsole = browser_console
@@ -136,16 +170,40 @@ async def start_repl():
     async def load_pygments():
         nonlocal pygments_loaded, lexer, formatter
         try:
-            await micropip.install("catppuccin[pygments]")
+            await micropip.install(["pygments", "catppuccin[pygments]"])
             from pygments.lexers import Python3Lexer
             from pygments.formatters import Terminal256Formatter
+            from pygments.styles import get_style_by_name
+            from pygments.style import Style
+            from pygments.token import string_to_tokentype
 
             lexer = Python3Lexer()
-            formatter = Terminal256Formatter(style=theme_name)
+
+            # Use custom pygmentsStyle if provided
+            if pygments_style_js:
+                # Convert JS object to Python dict
+                custom_styles = dict(pygments_style_js.to_py())
+
+                # Build style class dynamically
+                style_dict = {}
+                for token_str, color in custom_styles.items():
+                    token = string_to_tokentype(token_str)
+                    style_dict[token] = color
+
+                CustomStyle = type("CustomStyle", (Style,), {"styles": style_dict})
+                formatter = Terminal256Formatter(style=CustomStyle)
+            else:
+                # Try theme name as Pygments style, fall back based on background
+                try:
+                    get_style_by_name(theme_name)
+                    style = theme_name
+                except Exception:
+                    style = pygments_fallback
+                formatter = Terminal256Formatter(style=style)
+
             pygments_loaded = True
-        except Exception:
-            # Silently fail if Pygments can't load
-            pass
+        except Exception as e:
+            browser_console.term.write(f"[ERROR] Pygments load failed: {e}\r\n")
 
     # Start loading Pygments in background (non-blocking)
     asyncio.create_task(load_pygments())
@@ -223,11 +281,21 @@ async def start_repl():
             )()
             exec(startup_script, repl_globals)
             sys.stdout, sys.stderr = old_stdout, old_stderr
+
         except Exception as e:
             sys.stdout, sys.stderr = old_stdout, old_stderr
             browser_console.term.write(
                 f"\x1b[31mStartup script error - {type(e).__name__}: {e}\x1b[0m\r\n"
             )
+
+        # If startup script defined a setup() function, call it with output visible
+        if "setup" in repl_globals and callable(repl_globals["setup"]):
+            try:
+                exec_with_redirect(compile("setup()", "<setup>", "exec"), repl_globals)
+            except Exception as e:
+                browser_console.term.write(
+                    f"\x1b[31msetup() error - {type(e).__name__}: {e}\x1b[0m\r\n"
+                )
 
     def get_completions(text):
         """Get all completions for the given text."""

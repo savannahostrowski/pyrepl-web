@@ -6,167 +6,121 @@ An embeddable Python REPL, powered by Pyodide.
 
 ## Getting started
 
-Add a `.pyrepl` div and include the script:
+Include the script and use the `<py-repl>` web component:
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/pyrepl-web/dist/pyrepl.js"></script>
 
-<div class="pyrepl"></div>
+<py-repl></py-repl>
 ```
 
 That's it! No install needed.
 
-### Options
+## Features
 
-Configure via `data-*` attributes:
+- **Python 3.13** in the browser via WebAssembly (Pyodide)
+- **Syntax highlighting** powered by Pygments
+- **Tab completion** for modules, functions, and variables
+- **Command history** with up/down arrows
+- **Smart indentation** for multi-line code
+- **Keyboard shortcuts**: Ctrl+L (clear), Ctrl+C (cancel)
+- **PyPI packages**: preload popular libraries
+- **Startup scripts**: run Python on load to set up the environment
+- **Theming**: built-in dark/light themes or fully custom
 
-```html
-<!-- Dark theme (default) -->
-<div class="pyrepl" data-theme="catppuccin-mocha"></div>
-
-<!-- Light theme -->
-<div class="pyrepl" data-theme="catppuccin-latte"></div>
-
-<!-- Preload packages -->
-<div class="pyrepl" data-packages="numpy, pandas"></div>
-
-<!-- Combined -->
-<div class="pyrepl"
-     data-theme="catppuccin-latte"
-     data-packages="pydantic, requests">
-</div>
-
-<!-- Load and run a Python script on startup -->
-<div class="pyrepl" data-src="/scripts/demo.py"></div>
-```
-
-Supports...
-
-- Python 3.13 running in the browser via WebAssembly
-- Syntax highlighting with Pygments
-- Tab completion
-- Command history (up/down arrows)
-- Smart indentation
-- Keyboard shortcuts (Ctrl+L clear, Ctrl+C cancel)
-- Preload PyPI packages
-- Preload and run a Python script on startup
-- Copy and clear buttons in the header
-- Custom header title
-- Multiple color themes (Catppuccin Mocha/Latte)
-
-### Attributes
+## Attributes
 
 | Attribute | Description | Default |
 |-----------|-------------|---------|
-| `data-theme` | Color theme name (builtin or registered via `window.pyreplThemes`) | `catppuccin-mocha` |
-| `data-theme-config` | Inline JSON theme object for full customization | none |
-| `data-packages` | Comma-separated list of PyPI packages to preload | none |
-| `data-header` | Show the header bar (`true` or `false`) | `true` |
-| `data-buttons` | Show copy/clear buttons in header (`true` or `false`) | `true` |
-| `data-title` | Custom title in the header bar | `python` |
-| `data-src` | Path to a Python script to preload (runs silently, populates namespace) | none |
-| `data-readonly` | Disable input, display only (`true` or `false`) | `false` |
+| `theme` | Color theme name (builtin or registered via `window.pyreplThemes`) | `catppuccin-mocha` |
+| `packages` | Comma-separated list of PyPI packages to preload | none |
+| `repl-title` | Custom title in the header bar | `Python REPL` |
+| `src` | Path to a Python script to preload (runs silently, populates namespace) | none |
+| `no-header` | Hide the header bar (boolean attribute) | not set |
+| `no-buttons` | Hide copy/clear buttons in header (boolean attribute) | not set |
+| `readonly` | Disable input, display only (boolean attribute) | not set |
 
-### Custom Themes
+### Theming
 
-You can fully customize the theme using two approaches:
+Built-in themes: `catppuccin-mocha` (dark, default) and `catppuccin-latte` (light).
 
-#### 1. Register a named theme via JavaScript
+#### Custom Themes
+
+Register custom themes via `window.pyreplThemes` before loading the script. Only `background` and `foreground` are required - everything else is automatically derived:
 
 ```html
 <script>
 window.pyreplThemes = {
   'my-theme': {
-    background: '#282c34',
-    foreground: '#abb2bf',
-    cursor: '#528bff',
-    cursorAccent: '#282c34',
-    selectionBackground: '#3e4451',
-    black: '#1e2127',
-    red: '#e06c75',
-    green: '#98c379',
-    yellow: '#d19a66',
-    blue: '#61afef',
-    magenta: '#c678dd',
-    cyan: '#56b6c2',
-    white: '#abb2bf',
-    brightBlack: '#5c6370',
-    brightRed: '#e06c75',
-    brightGreen: '#98c379',
-    brightYellow: '#d19a66',
-    brightBlue: '#61afef',
-    brightMagenta: '#c678dd',
-    brightCyan: '#56b6c2',
-    brightWhite: '#ffffff',
-    // Optional header customization
-    headerBackground: '#21252b',
-    headerTitle: '#5c6370',
+    background: '#1a1b26',
+    foreground: '#a9b1d6',
   }
 };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/pyrepl-web/dist/pyrepl.js"></script>
 
-<div class="pyrepl" data-theme="my-theme"></div>
+<py-repl theme="my-theme"></py-repl>
 ```
 
-#### 2. Inline theme via data attribute
-
-```html
-<div class="pyrepl" data-theme-config='{
-  "background": "#1a1b26",
-  "foreground": "#a9b1d6",
-  "cursor": "#c0caf5",
-  "cursorAccent": "#1a1b26",
-  "selectionBackground": "#33467c",
-  "black": "#15161e",
-  "red": "#f7768e",
-  "green": "#9ece6a",
-  "yellow": "#e0af68",
-  "blue": "#7aa2f7",
-  "magenta": "#bb9af7",
-  "cyan": "#7dcfff",
-  "white": "#a9b1d6",
-  "brightBlack": "#414868",
-  "brightRed": "#f7768e",
-  "brightGreen": "#9ece6a",
-  "brightYellow": "#e0af68",
-  "brightBlue": "#7aa2f7",
-  "brightMagenta": "#bb9af7",
-  "brightCyan": "#7dcfff",
-  "brightWhite": "#c0caf5"
-}'></div>
-```
+**What gets auto-derived from your background color:**
+- Terminal colors (red for errors, green for success, etc.) - from catppuccin-mocha (dark) or catppuccin-latte (light)
+- Syntax highlighting - uses the matching catppuccin Pygments style
+- Header colors - derived from the base theme
 
 #### Theme Properties
 
 | Property | Description |
 |----------|-------------|
-| `background` | Terminal background color |
-| `foreground` | Default text color |
-| `cursor` | Cursor color |
-| `cursorAccent` | Cursor text color |
-| `selectionBackground` | Text selection highlight |
-| `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white` | Standard ANSI colors |
-| `brightBlack`, `brightRed`, ... `brightWhite` | Bright ANSI color variants |
-| `headerBackground` | (Optional) Header bar background, defaults to `black` |
-| `headerTitle` | (Optional) Header title text color, defaults to `brightBlack` |
-| `shadow` | (Optional) Box shadow CSS value |
+| `background` | Terminal background color (required) |
+| `foreground` | Default text color (required) |
+| `headerBackground` | Header bar background (optional) |
+| `headerForeground` | Header title color (optional) |
+| `promptColor` | Prompt `>>>` color - hex (`#7aa2f7`) or name (`green`, `cyan`) (optional) |
+| `pygmentsStyle` | Custom syntax highlighting (optional, see below) |
 
-### Hugo Shortcode
+#### Syntax Highlighting
 
-Create `layouts/shortcodes/pyrepl.html`:
+Syntax highlighting uses [Pygments](https://pygments.org/). The style is chosen automatically:
+
+1. If your theme name matches a [Pygments style](https://pygments.org/styles/) (e.g., `monokai`, `dracula`), that style is used
+2. Otherwise, uses `catppuccin-mocha` for dark backgrounds or `catppuccin-latte` for light backgrounds
+
+For full control, provide a `pygmentsStyle` mapping [Pygments tokens](https://pygments.org/docs/tokens/) to colors:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/pyrepl-web/dist/pyrepl.js"></script>
-<div class="pyrepl" {{ with .Get "theme" }}data-theme="{{ . }}"{{ end }} {{ with .Get "packages" }}data-packages="{{ . }}"{{ end }}></div>
+<script>
+window.pyreplThemes = {
+  'tokyo-night': {
+    background: '#1a1b26',
+    foreground: '#a9b1d6',
+    promptColor: '#bb9af7',
+    pygmentsStyle: {
+      'Keyword': '#bb9af7',
+      'String': '#9ece6a',
+      'Number': '#ff9e64',
+      'Comment': '#565f89',
+      'Name.Function': '#7aa2f7',
+      'Name.Builtin': '#7dcfff',
+    }
+  }
+};
+</script>
 ```
 
-Then use it in any markdown file:
+### Legacy API
 
-```markdown
-{{</* pyrepl */>}}
-{{</* pyrepl theme="catppuccin-latte" */>}}
-{{</* pyrepl packages="numpy, pandas" */>}}
+The legacy `<div class="pyrepl">` API is still supported for backwards compatibility:
+
+```html
+<div class="pyrepl"
+     data-theme="catppuccin-mocha"
+     data-packages="numpy"
+     data-title="My REPL"
+     data-src="/demo.py"
+     data-header="true"
+     data-buttons="true"
+     data-readonly="false">
+</div>
 ```
 
 ## Development
