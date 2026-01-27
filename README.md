@@ -52,16 +52,13 @@ The script runs silently to populate the namespace. If you define a `setup()` fu
 
 ```python
 # setup.py
-import math
+import pandas as pd
 
-x = 42
-
-def greet(name):
-    return f"Hello, {name}!"
+df = pd.DataFrame({'name': ['Alice', 'Bob'], 'age': [30, 25]})
 
 def setup():
-    """Called after startup - output is visible."""
-    print("Welcome! Try: print(x) or greet('your name')")
+    print("DataFrame loaded:")
+    print(df)
 ```
 
 ### Theming

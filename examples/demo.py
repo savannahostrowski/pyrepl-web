@@ -1,10 +1,8 @@
-x = 42
+import pandas as pd
 
-
-def greet(name):
-    print(f"Hello, {name}!")
+df = pd.DataFrame({"name": ["Alice", "Bob"], "age": [30, 25]})
 
 
 def setup():
-    """Called after startup with output visible."""
-    print("Welcome! Try: print(x) or greet('your name')")
+    print("DataFrame loaded:")
+    print(df)
