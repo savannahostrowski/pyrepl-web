@@ -666,6 +666,10 @@ async function createRepl(
 
   // Only attach input handler if not readonly
   if (!config.readonly) {
+    // Buffer to track what we've sent to Python (for filtering composition replays)
+    let sentBuffer = "";
+    let lastCompositionPart = ""; // Track what we extracted from last composition replay
+
     // Handle Ctrl+C for copy and Ctrl+V for paste
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
       if (event.type === "keydown" && event.ctrlKey) {
@@ -694,8 +698,78 @@ async function createRepl(
     });
 
     term.onData((data: string) => {
+      // Filter mobile keyboard auto-space after punctuation
+      // If data is quote+space, dot+space, comma+space, or paren+space, drop the space
+      if (data === '" ' || data === ". " || data === ", " || data === ") ") {
+        data = data[0] as string;
+      }
+
+      // Skip if this is a duplicate of what we just sent via composition replay
+      if (lastCompositionPart) {
+        if (data === lastCompositionPart) {
+          // Exact match - skip and clear
+          lastCompositionPart = "";
+          return;
+        }
+        if (lastCompositionPart.startsWith(data)) {
+          // Partial match (e.g., "," matches ", ") - skip and remember remainder
+          lastCompositionPart = lastCompositionPart.slice(data.length);
+          return;
+        }
+        // No match - clear and continue
+        lastCompositionPart = "";
+      }
+
+      // Filter mobile keyboard composition replay
+      // If data is >1 char and starts with what we've already sent, only send the new part
+      if (data.length > 1 && sentBuffer.length > 0) {
+        // Check if data starts with our buffer (exact match)
+        const startsWithBuffer = data.startsWith(sentBuffer);
+        if (startsWithBuffer) {
+          // Only send the new characters (after the buffer content)
+          const newPart = data.slice(sentBuffer.length);
+          lastCompositionPart = newPart; // Remember to skip duplicate
+          if (newPart) {
+            for (const char of newPart) {
+              browserConsole.push_char(char.charCodeAt(0));
+              const code = char.charCodeAt(0);
+              if (code >= 32 && code < 127) {
+                sentBuffer += char;
+              }
+            }
+          }
+          return;
+        }
+      }
+
+      // Handle backspace BEFORE sending - update buffer first
+      if (data === "\x7f" || data === "\x08") {
+        browserConsole.push_char(data.charCodeAt(0));
+        if (sentBuffer.length > 0) {
+          sentBuffer = sentBuffer.slice(0, -1);
+        }
+        return;
+      }
+
+      // Clear buffer on line-ending events (Enter, Ctrl+C, ESC)
+      if (data === "\r" || data === "\x03" || data === "\x1b") {
+        for (const char of data) {
+          browserConsole.push_char(char.charCodeAt(0));
+        }
+        sentBuffer = "";
+        return;
+      }
+
+      // Send to Python and track what we sent
+      // Don't add escape sequences to buffer (they're cursor movement, not text input)
+      const isEscapeSequence = data.startsWith("\x1b");
       for (const char of data) {
         browserConsole.push_char(char.charCodeAt(0));
+        // Only add printable chars (32-126) to buffer, skip escape sequences and control chars
+        const code = char.charCodeAt(0);
+        if (!isEscapeSequence && code >= 32 && code < 127) {
+          sentBuffer += char;
+        }
       }
     });
 
