@@ -200,6 +200,7 @@ interface PyreplConfig {
   srcOutput: boolean;
   startupMessage: boolean;
   readonly: boolean;
+  fontSize: number;
 }
 
 // Parse all configuration from container data attributes
@@ -261,6 +262,7 @@ function parseConfig(container: HTMLElement): PyreplConfig {
       container.dataset.startupMessage !== "false" &&
       container.getAttribute("startup-message") !== "false",
     readonly: container.dataset.readonly === "true",
+    fontSize: Number.parseInt(container.dataset.fontSize || "14", 10),
   };
 }
 
@@ -516,7 +518,7 @@ async function createTerminal(
   const term = new XTerm.Terminal({
     cursorBlink: !config.readonly,
     cursorStyle: config.readonly ? "bar" : "block",
-    fontSize: 14,
+    fontSize: config.fontSize,
     fontFamily: "monospace",
     theme: config.theme,
     disableStdin: config.readonly,
