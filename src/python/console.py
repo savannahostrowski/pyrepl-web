@@ -258,6 +258,189 @@ async def start_repl():
     sys.__displayhook__ = default_displayhook
     sys.__excepthook__ = default_excepthook
 
+    async def read_line(prompt="", initial="", history=None, highlight=None, 
+                        complete=None, on_ctrl_l=None, on_tab=None, on_enter=None):
+        """
+        Async readline with cursor movement, history, and optional syntax highlighting.
+        Used by both input() and the REPL.
+        
+        Args:
+            prompt: The prompt string to display
+            initial: Initial content of the line
+            history: Optional list of history entries (modified in place if provided)
+            highlight: Optional function to syntax-highlight the line for display
+            complete: Optional function(word) -> list of completions
+            on_ctrl_l: Optional callback for Ctrl+L (clear screen)
+            on_tab: Optional callback(line, cursor_pos) -> (new_line, new_cursor_pos) or None
+                    If provided, overrides default tab completion behavior
+            on_enter: Optional callback(line) -> (new_line, new_cursor_pos) or None
+                    If returns tuple, update line and continue editing (no newline)
+                    If returns None, proceed with normal Enter behavior (return line)
+        
+        Returns:
+            The entered line (without trailing newline)
+        
+        Raises:
+            KeyboardInterrupt: If Ctrl+C is pressed
+        """
+        if highlight is None:
+            highlight = lambda x: x
+        
+        current_line = initial
+        cursor_pos = len(current_line)
+        history_index = len(history) if history else 0
+        
+        browser_console.term.write(prompt + highlight(current_line))
+        if cursor_pos < len(current_line):
+            browser_console.term.write(f"\x1b[{len(current_line) - cursor_pos}D")
+        
+        while True:
+            event = await browser_console.get_event(block=True)
+            if event is None:
+                continue
+            
+            char = event.data
+            
+            if char == "\x03":
+                # Ctrl+C - raise KeyboardInterrupt
+                browser_console.term.write("^C\r\n")
+                raise KeyboardInterrupt()
+            
+            if char == "\x0c":
+                # Ctrl+L - clear screen
+                if on_ctrl_l:
+                    on_ctrl_l()
+                    browser_console.term.write(prompt + highlight(current_line))
+                    if cursor_pos < len(current_line):
+                        browser_console.term.write(f"\x1b[{len(current_line) - cursor_pos}D")
+                continue
+            
+            if char == "\r" or char == "\n":
+                # Check on_enter callback first
+                if on_enter:
+                    result = on_enter(current_line)
+                    if result is not None:
+                        # Stay on same line with updated content
+                        current_line, cursor_pos = result
+                        output = "\r\x1b[K" + prompt + highlight(current_line)
+                        if cursor_pos < len(current_line):
+                            output += f"\x1b[{len(current_line) - cursor_pos}D"
+                        browser_console.term.write(output)
+                        continue
+                # Normal Enter - return the line
+                browser_console.term.write("\r\n")
+                return current_line
+            
+            if char == "\t":
+                # Tab completion
+                if on_tab:
+                    # Custom tab handler (for REPL with multi-match display)
+                    result = on_tab(current_line, cursor_pos)
+                    if result:
+                        current_line, cursor_pos = result
+                        output = "\r\x1b[K" + prompt + highlight(current_line)
+                        if cursor_pos < len(current_line):
+                            output += f"\x1b[{len(current_line) - cursor_pos}D"
+                        browser_console.term.write(output)
+                elif complete:
+                    # Simple completion (for input())
+                    word = ""
+                    match = re.search(r"[\w.]*$", current_line[:cursor_pos])
+                    if match:
+                        word = match.group(0)
+                    if word:
+                        completions = complete(word)
+                        if len(completions) == 1:
+                            before = current_line[:cursor_pos - len(word)]
+                            after = current_line[cursor_pos:]
+                            current_line = before + completions[0] + after
+                            cursor_pos = len(before) + len(completions[0])
+                            output = "\r\x1b[K" + prompt + highlight(current_line)
+                            if cursor_pos < len(current_line):
+                                output += f"\x1b[{len(current_line) - cursor_pos}D"
+                            browser_console.term.write(output)
+                continue
+            
+            if char == "\x1b":
+                # Escape sequence
+                await asyncio.sleep(0.01)
+                if not browser_console.event_queue:
+                    # Bare ESC - clear line and return empty
+                    browser_console.term.write("\r\x1b[K" + prompt)
+                    current_line = ""
+                    cursor_pos = 0
+                    if history is not None:
+                        history_index = len(history)
+                    continue
+                
+                event2 = await browser_console.get_event(block=False)
+                if event2 is None:
+                    continue
+                if event2.data == "[":
+                    event3 = await browser_console.get_event(block=True)
+                    if event3:
+                        if event3.data == "A" and history:
+                            # Up arrow
+                            history_index = max(0, history_index - 1)
+                            browser_console.term.write("\r\x1b[K")
+                            hist_entry = history[history_index]
+                            current_line = hist_entry.split("\n")[0] if "\n" in hist_entry else hist_entry
+                            cursor_pos = len(current_line)
+                            browser_console.term.write(prompt + highlight(current_line))
+                        elif event3.data == "B" and history:
+                            # Down arrow
+                            history_index = min(len(history), history_index + 1)
+                            browser_console.term.write("\r\x1b[K")
+                            if history_index < len(history):
+                                hist_entry = history[history_index]
+                                current_line = hist_entry.split("\n")[0] if "\n" in hist_entry else hist_entry
+                            else:
+                                current_line = ""
+                            cursor_pos = len(current_line)
+                            browser_console.term.write(prompt + highlight(current_line))
+                        elif event3.data == "C":
+                            # Right arrow
+                            if cursor_pos < len(current_line):
+                                cursor_pos += 1
+                                browser_console.term.write("\x1b[C")
+                        elif event3.data == "D":
+                            # Left arrow
+                            if cursor_pos > 0:
+                                cursor_pos -= 1
+                                browser_console.term.write("\x1b[D")
+                        elif event3.data == "H":
+                            # Home key
+                            if cursor_pos > 0:
+                                browser_console.term.write(f"\x1b[{cursor_pos}D")
+                                cursor_pos = 0
+                        elif event3.data == "F":
+                            # End key
+                            if cursor_pos < len(current_line):
+                                move = len(current_line) - cursor_pos
+                                browser_console.term.write(f"\x1b[{move}C")
+                                cursor_pos = len(current_line)
+                continue
+            
+            if char == "\x7f" or char == "\x08":
+                # Backspace
+                if cursor_pos > 0:
+                    current_line = current_line[:cursor_pos - 1] + current_line[cursor_pos:]
+                    cursor_pos -= 1
+                    output = "\r\x1b[K" + prompt + highlight(current_line)
+                    if cursor_pos < len(current_line):
+                        output += f"\x1b[{len(current_line) - cursor_pos}D"
+                    browser_console.term.write(output)
+                continue
+            
+            # Regular character - insert at cursor
+            if len(char) == 1 and ord(char) >= 32:
+                current_line = current_line[:cursor_pos] + char + current_line[cursor_pos:]
+                cursor_pos += 1
+                output = "\r\x1b[K" + prompt + highlight(current_line)
+                if cursor_pos < len(current_line):
+                    output += f"\x1b[{len(current_line) - cursor_pos}D"
+                browser_console.term.write(output)
+
     # Try to use run_sync, fall back to browser prompt() on iOS/Safari
     _run_sync_works = False
     try:
@@ -376,143 +559,112 @@ async def start_repl():
     if readonly:
         return
 
-    browser_console.term.write(PS1)
     lines = []
-    current_line = ""
-
     history = []
-    history_index = 0
+
+    def handle_tab(current_line, cursor_pos):
+        """Handle tab completion, returns (new_line, new_cursor_pos) or None."""
+        word = get_word_to_complete(current_line[:cursor_pos])
+        if not word:
+            return None
+        
+        completions = get_completions(word)
+        if len(completions) == 1:
+            # Single match - complete it
+            before = current_line[:cursor_pos - len(word)]
+            after = current_line[cursor_pos:]
+            new_line = before + completions[0] + after
+            new_cursor = len(before) + len(completions[0])
+            return (new_line, new_cursor)
+        elif len(completions) > 1:
+            # Multiple matches - show them in columns
+            browser_console.term.write("\r\n")
+            max_len = max(len(c) for c in completions) + 2
+            cols = max(1, browser_console.term.cols // max_len)
+            for i, c in enumerate(completions):
+                browser_console.term.write(c.ljust(max_len))
+                if (i + 1) % cols == 0:
+                    browser_console.term.write("\r\n")
+            if len(completions) % cols != 0:
+                browser_console.term.write("\r\n")
+            # Return same line/cursor - read_line will redraw
+            return (current_line, cursor_pos)
+        return None
+
+    def handle_enter(current_line):
+        """Handle Enter key - check for de-indent in multiline mode."""
+        # Only de-indent when in multiline mode with just whitespace
+        if len(lines) > 0 and not current_line.strip():
+            current_indent = len(current_line)
+            if current_indent > 0:
+                # De-indent by 4 spaces, stay on same line
+                new_indent = max(0, current_indent - 4)
+                return (" " * new_indent, new_indent)
+        # Normal enter - proceed with newline
+        return None
 
     while True:
-        event = await browser_console.get_event(block=True)
-        if event is None:
-            continue
-
-        char = event.data
-        if char == "\x03":
-            # Ctrl+C - interrupt/cancel current input
-            browser_console.term.write("^C\r\n")
+        prompt = PS1 if len(lines) == 0 else PS2
+        initial = ""
+        
+        # Calculate initial indent for continuation lines
+        if lines:
+            prev_line = lines[-1]
+            initial = " " * (len(prev_line) - len(prev_line.lstrip()))
+            if prev_line.rstrip().endswith(":"):
+                initial += "    "
+        
+        try:
+            current_line = await read_line(
+                prompt=prompt,
+                initial=initial,
+                history=history if len(lines) == 0 else None,  # Only use history on first line
+                highlight=syntax_highlight,
+                on_ctrl_l=clear,
+                on_tab=handle_tab,
+                on_enter=handle_enter,
+            )
+        except KeyboardInterrupt:
+            # Ctrl+C - cancel and restart
             lines = []
-            current_line = ""
-            history_index = len(history)
             browser_console.term.write(PS1)
             continue
-
-        if char == "\x0c":
-            # Ctrl+L - clear screen
-            clear()
-            browser_console.term.write(PS1 + syntax_highlight(current_line))
+        
+        lines.append(current_line)
+        source = "\n".join(lines)
+        
+        if not source.strip():
+            lines = []
             continue
-
-        if char == "\x1b":
-            # Might be an arrow key
-            event2 = await browser_console.get_event(block=True)
-            if event2 and event2.data == "[":
-                event3 = await browser_console.get_event(block=True)
-                if event3:
-                    if event3.data == "A":
-                        # Up arrow
-                        if history:
-                            history_index = max(0, history_index - 1)
-                            # Clear current line
-                            browser_console.term.write("\r\x1b[K")
-                            hist_entry = history[history_index]
-                            # For multiline entries, only show first line
-                            current_line = (
-                                hist_entry.split("\n")[0]
-                                if "\n" in hist_entry
-                                else hist_entry
-                            )
-                            browser_console.term.write(
-                                PS1 + syntax_highlight(current_line)
-                            )
-                    elif event3.data == "B":
-                        # Down arrow
-                        if history:
-                            history_index = min(len(history), history_index + 1)
-                            # Clear current line
-                            browser_console.term.write("\r\x1b[K")
-                            if history_index < len(history):
-                                hist_entry = history[history_index]
-                                # For multiline entries, only show first line
-                                current_line = (
-                                    hist_entry.split("\n")[0]
-                                    if "\n" in hist_entry
-                                    else hist_entry
-                                )
-                            else:
-                                current_line = ""
-                            browser_console.term.write(
-                                PS1 + syntax_highlight(current_line)
-                            )
-                    # Left and Right arrows can be implemented similarly
-            continue
-
-        if char == "\r":
-            browser_console.term.write("\r\n")
-
-            lines.append(current_line)
+        
+        # If in multiline mode and user entered empty line at indent 0, execute
+        if len(lines) > 1 and not current_line.strip():
+            # At indent level 0 with empty line - execute the code
+            while lines and not lines[-1].strip():
+                lines.pop()
             source = "\n".join(lines)
-
-            if not source.strip():
-                lines = []
-                current_line = ""
-                browser_console.term.write(PS1)
-                continue
-
-            # If in multiline mode and user entered empty/whitespace line, execute
-            if len(lines) > 1 and not current_line.strip():
-                # Remove trailing empty lines
-                while lines and not lines[-1].strip():
-                    lines.pop()
-                source = "\n".join(lines)
-                try:
-                    code = compile(source, "<console>", "single")
-                    exec_with_redirect(code, repl_globals)
-                    history.append(source)
-                    history_index = len(history)
-                except SystemExit:
-                    pass
-                except Exception as e:
-                    browser_console.term.write(
-                        f"\x1b[31m{type(e).__name__}: {e}\x1b[0m\r\n"
-                    )
-                lines = []
-                current_line = ""
-                browser_console.term.write(PS1)
-                continue
-
             try:
-                code = compile_command(source, "<console>", "single")
-                if code is None:
-                    # Incomplete — need more input
-                    prev_line = lines[-1] if lines else current_line
-                    indent = len(prev_line) - len(prev_line.lstrip())
-                    if prev_line.rstrip().endswith(":"):
-                        indent += 4
-                    browser_console.term.write(PS2 + " " * indent)
-                    current_line = " " * indent
-                else:
-                    # Complete code, execute it
-                    if source.strip():
-                        history.append(source)
-                        history_index = len(history)
-                    try:
-                        exec_with_redirect(code, repl_globals)
-                    except SystemExit:
-                        pass
-                    except Exception as e:
-                        browser_console.term.write(
-                            f"\x1b[31m{type(e).__name__}: {e}\x1b[0m\r\n"
-                        )
-                    lines = []
-                    current_line = ""
-                    browser_console.term.write(PS1)
+                code = compile(source, "<console>", "single")
+                exec_with_redirect(code, repl_globals)
+                history.append(source)
             except SystemExit:
                 pass
             except SyntaxError as e:
                 with contextlib.redirect_stdout(term_writer), contextlib.redirect_stderr(term_writer):
                     sys.excepthook(type(e), e, e.__traceback__)
+            lines = []
+            continue
+        
+        try:
+            code = compile_command(source, "<console>", "single")
+            if code is None:
+                # Incomplete — need more input (will auto-indent on next iteration)
+                continue
+            else:
+                # Complete code, execute it
+                if source.strip():
+                    history.append(source)
+                exec_with_redirect(code, repl_globals)
                 lines = []
         except SyntaxError as e:
             with contextlib.redirect_stdout(term_writer), contextlib.redirect_stderr(term_writer):
@@ -522,42 +674,3 @@ async def start_repl():
             with contextlib.redirect_stdout(term_writer), contextlib.redirect_stderr(term_writer):
                 sys.excepthook(type(e), e, e.__traceback__)
             lines = []
-                current_line = ""
-                browser_console.term.write(PS1)
-        elif char == "\t":
-            # Tab completion
-            word = get_word_to_complete(current_line)
-            if word:
-                completions = get_completions(word)
-                if len(completions) == 1:
-                    # Single match - complete it
-                    completion = completions[0]
-                    current_line = current_line[: -len(word)] + completion
-                    browser_console.term.write("\r\x1b[K")
-                    prompt = PS1 if len(lines) == 0 else PS2
-                    browser_console.term.write(prompt + syntax_highlight(current_line))
-                elif len(completions) > 1:
-                    # Multiple matches - show them in columns
-                    browser_console.term.write("\r\n")
-                    max_len = max(len(c) for c in completions) + 2
-                    cols = max(1, browser_console.term.cols // max_len)
-                    for i, c in enumerate(completions):
-                        browser_console.term.write(c.ljust(max_len))
-                        if (i + 1) % cols == 0:
-                            browser_console.term.write("\r\n")
-                    if len(completions) % cols != 0:
-                        browser_console.term.write("\r\n")
-                    prompt = PS1 if len(lines) == 0 else PS2
-                    browser_console.term.write(prompt + syntax_highlight(current_line))
-        elif char == "\x7f":
-            if current_line:
-                current_line = current_line[:-1]
-                browser_console.term.write("\r\x1b[K")
-                prompt = PS1 if len(lines) == 0 else PS2
-                browser_console.term.write(prompt + syntax_highlight(current_line))
-        else:
-            current_line += char
-            # Clear line and rewrite with highlighting
-            browser_console.term.write("\r\x1b[K")  # Go to start, clear line
-            prompt = PS1 if len(lines) == 0 else PS2
-            browser_console.term.write(prompt + syntax_highlight(current_line))
