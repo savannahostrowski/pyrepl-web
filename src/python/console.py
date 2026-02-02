@@ -236,7 +236,34 @@ async def start_repl():
 
     # Custom exec that redirects stdout/stderr to this REPL's terminal
     import contextlib
+    # Try to use run_sync, fall back to browser prompt() on iOS/Safari
+    _run_sync_works = False
+    try:
+        from pyodide.ffi import run_sync
+        # Test if run_sync actually works (requires JSPI support)
+        async def _test_coro():
+            return True
+        run_sync(_test_coro())
+        _run_sync_works = True
+    except ImportError:
+        pass
+    except Exception:
+        # run_sync imported but doesn't work (no JSPI) - will use prompt() fallback
+        pass
 
+    def sync_input(prompt=""):
+        """Synchronous input() - uses run_sync if available, else browser prompt()."""
+        sys.stdout.flush()
+        sys.stderr.flush()
+        
+        if _run_sync_works:
+            return run_sync(read_line(prompt))
+        
+        # Fallback: use browser's prompt() dialog
+        result = js.prompt(prompt)
+        if result is None:
+            raise KeyboardInterrupt()  # User cancelled
+        return result
     def exec_with_redirect(code, globals_dict):
         old_displayhook = sys.displayhook
 
@@ -272,6 +299,7 @@ async def start_repl():
         "clear": clear,
         "exit": Exit(),
         "quit": Exit(),
+        "input": sync_input,
     }
     completer = rlcompleter.Completer(repl_globals)
 
