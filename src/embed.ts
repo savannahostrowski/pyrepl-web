@@ -666,6 +666,33 @@ async function createRepl(
 
   // Only attach input handler if not readonly
   if (!config.readonly) {
+    // Handle Ctrl+C for copy and Ctrl+V for paste
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (event.type === "keydown" && event.ctrlKey) {
+        if (event.key === "c") {
+          const selection = term.getSelection();
+          if (selection && selection.length > 0) {
+            navigator.clipboard.writeText(selection);
+            term.clearSelection();
+            event.preventDefault();
+            return false; // Prevent xterm from processing this key
+          }
+        } else if (event.key === "v") {
+          event.preventDefault(); // Prevent browser's default paste
+          navigator.clipboard.readText().then((text) => {
+            if (text) {
+              // Send pasted text to Python
+              for (const char of text) {
+                browserConsole.push_char(char.charCodeAt(0));
+              }
+            }
+          });
+          return false; // Prevent xterm from processing this key
+        }
+      }
+      return true; // Let xterm handle other keys
+    });
+
     term.onData((data: string) => {
       for (const char of data) {
         browserConsole.push_char(char.charCodeAt(0));
