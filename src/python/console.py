@@ -148,6 +148,8 @@ async def start_repl():
     readonly = getattr(js, "pyreplReadonly", False)
     prompt_color = getattr(js, "pyreplPromptColor", None) or "green"
     pygments_style_js = getattr(js, "pyreplPygmentsStyle", None)
+    # Whether to show the Python version startup message
+    startup_message = getattr(js, "pyreplStartupMessage", True)
 
     # Build prompt strings with configured color
     color_code = color_to_ansi(prompt_color)
@@ -254,7 +256,8 @@ async def start_repl():
 
     def clear():
         browser_console.clear()
-        browser_console.term.write(f"\x1b[90m{info_line}\x1b[0m\r\n")
+        if startup_message:
+            browser_console.term.write(f"\x1b[90m{info_line}\x1b[0m\r\n")
 
     class Exit:
         def __repr__(self):

@@ -54,6 +54,7 @@ declare global {
   var pyreplReadonly: boolean;
   var pyreplPromptColor: string;
   var pyreplPygmentsStyle: Record<string, string> | undefined;
+  var pyreplStartupMessage: boolean;
   // biome-ignore lint/suspicious/noExplicitAny: Python console from Pyodide
   var currentBrowserConsole: any;
 }
@@ -195,6 +196,7 @@ interface PyreplConfig {
   title: string;
   packages: string[];
   src: string | null;
+  startupMessage: boolean;
   readonly: boolean;
 }
 
@@ -250,6 +252,9 @@ function parseConfig(container: HTMLElement): PyreplConfig {
     title: container.dataset.title || "python",
     packages,
     src: container.dataset.src || null,
+    startupMessage:
+      container.dataset.startupMessage !== "false" &&
+      container.getAttribute("startup-message") !== "false",
     readonly: container.dataset.readonly === "true",
   };
 }
@@ -530,13 +535,15 @@ async function createRepl(
     await micropip.install(config.packages);
   }
 
-  // Show loaded message (dim gray)
+  // Show loaded message (dim gray) if startup message is enabled
   const loadedPkgs =
     config.packages.length > 0
       ? ` (installed packages: ${config.packages.join(", ")})`
       : "";
   const infoLine = `Python 3.13${loadedPkgs}`;
-  term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+  if (config.startupMessage) {
+    term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+  }
 
   // Expose globals to Python
   globalThis.term = term;
@@ -548,6 +555,7 @@ async function createRepl(
   globalThis.pyreplReadonly = config.readonly;
   globalThis.pyreplPromptColor = config.theme.promptColor || "green";
   globalThis.pyreplPygmentsStyle = config.theme.pygmentsStyle;
+  globalThis.pyreplStartupMessage = config.startupMessage;
 
   // Pre-fetch startup script if specified (before starting REPL)
   if (config.src) {
