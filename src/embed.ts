@@ -54,6 +54,7 @@ declare global {
   var pyreplReadonly: boolean;
   var pyreplPromptColor: string;
   var pyreplPygmentsStyle: Record<string, string> | undefined;
+  var pyreplSrcOutput: boolean;
   var pyreplStartupMessage: boolean;
   // biome-ignore lint/suspicious/noExplicitAny: Python console from Pyodide
   var currentBrowserConsole: any;
@@ -196,6 +197,7 @@ interface PyreplConfig {
   title: string;
   packages: string[];
   src: string | null;
+  srcOutput: boolean;
   startupMessage: boolean;
   readonly: boolean;
 }
@@ -252,6 +254,9 @@ function parseConfig(container: HTMLElement): PyreplConfig {
     title: container.dataset.title || "python",
     packages,
     src: container.dataset.src || null,
+    srcOutput:
+      container.dataset.srcOutput === "true" ||
+      container.getAttribute("src-output") === "true",
     startupMessage:
       container.dataset.startupMessage !== "false" &&
       container.getAttribute("startup-message") !== "false",
@@ -555,6 +560,7 @@ async function createRepl(
   globalThis.pyreplReadonly = config.readonly;
   globalThis.pyreplPromptColor = config.theme.promptColor || "green";
   globalThis.pyreplPygmentsStyle = config.theme.pygmentsStyle;
+  globalThis.pyreplSrcOutput = config.srcOutput;
   globalThis.pyreplStartupMessage = config.startupMessage;
 
   // Pre-fetch startup script if specified (before starting REPL)

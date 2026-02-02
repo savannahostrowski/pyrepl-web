@@ -148,6 +148,8 @@ async def start_repl():
     readonly = getattr(js, "pyreplReadonly", False)
     prompt_color = getattr(js, "pyreplPromptColor", None) or "green"
     pygments_style_js = getattr(js, "pyreplPygmentsStyle", None)
+    # Whether to show output from startup script
+    src_output = getattr(js, "pyreplSrcOutput", False)
     # Whether to show the Python version startup message
     startup_message = getattr(js, "pyreplStartupMessage", True)
 
@@ -274,19 +276,27 @@ async def start_repl():
     }
     completer = rlcompleter.Completer(repl_globals)
 
-    # Run startup script if one was provided (silently, just to populate namespace)
+    # Run startup script if one was provided
     if startup_script:
         try:
-            # Temporarily suppress stdout/stderr during startup
-            old_stdout, old_stderr = sys.stdout, sys.stderr
-            sys.stdout = sys.stderr = type(
-                "null", (), {"write": lambda s, x: None, "flush": lambda s: None}
-            )()
-            exec(startup_script, repl_globals)
-            sys.stdout, sys.stderr = old_stdout, old_stderr
-
+            if src_output:
+                # Redirect stdout/stderr to the terminal during startup
+                with (
+                    contextlib.redirect_stdout(term_writer),
+                    contextlib.redirect_stderr(term_writer),
+                ):
+                    exec(startup_script, repl_globals)
+            else:
+                # Silently execute (suppress stdout/stderr)
+                old_stdout, old_stderr = sys.stdout, sys.stderr
+                sys.stdout = sys.stderr = type(
+                    "null", (), {"write": lambda s, x: None, "flush": lambda s: None}
+                )()
+                exec(startup_script, repl_globals)
+                sys.stdout, sys.stderr = old_stdout, old_stderr
         except Exception as e:
-            sys.stdout, sys.stderr = old_stdout, old_stderr
+            if not src_output:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
             browser_console.term.write(
                 f"\x1b[31mStartup script error - {type(e).__name__}: {e}\x1b[0m\r\n"
             )
