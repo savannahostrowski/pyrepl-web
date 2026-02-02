@@ -236,6 +236,28 @@ async def start_repl():
 
     # Custom exec that redirects stdout/stderr to this REPL's terminal
     import contextlib
+    import traceback
+
+    def default_displayhook(value):
+        """Default displayhook that writes to the terminal."""
+        if value is not None:
+            repl_globals["_"] = value
+            browser_console.term.write(repr(value) + "\r\n")
+
+    def default_excepthook(exc_type, exc_value, exc_tb):
+        """Default excepthook that writes to the terminal in red."""
+        # Format the traceback
+        lines = traceback.format_exception(exc_type, exc_value, exc_tb)
+        for line in lines:
+            browser_console.term.write(f"\x1b[31m{line}\x1b[0m".replace("\n", "\r\n"))
+
+    # Set our defaults as the current hooks and save as __displayhook__/__excepthook__
+    # so user code can call sys.__excepthook__(type, value, tb) like in CPython
+    sys.displayhook = default_displayhook
+    sys.excepthook = default_excepthook
+    sys.__displayhook__ = default_displayhook
+    sys.__excepthook__ = default_excepthook
+
     # Try to use run_sync, fall back to browser prompt() on iOS/Safari
     _run_sync_works = False
     try:
@@ -264,23 +286,19 @@ async def start_repl():
         if result is None:
             raise KeyboardInterrupt()  # User cancelled
         return result
+
     def exec_with_redirect(code, globals_dict):
-        old_displayhook = sys.displayhook
-
-        def displayhook(value):
-            if value is not None:
-                globals_dict["_"] = value
-                browser_console.term.write(repr(value) + "\r\n")
-
-        sys.displayhook = displayhook
         try:
             with (
                 contextlib.redirect_stdout(term_writer),
                 contextlib.redirect_stderr(term_writer),
             ):
                 exec(code, globals_dict)
-        finally:
-            sys.displayhook = old_displayhook
+        except SystemExit:
+            raise  # Let SystemExit propagate
+        except:
+            # Use the current excepthook (may be user-overridden)
+            sys.excepthook(*sys.exc_info())
 
     def clear():
         browser_console.clear()
@@ -490,14 +508,20 @@ async def start_repl():
                     lines = []
                     current_line = ""
                     browser_console.term.write(PS1)
+            except SystemExit:
+                pass
             except SyntaxError as e:
-                browser_console.term.write(f"\x1b[31mSyntaxError: {e}\x1b[0m\r\n")
+                with contextlib.redirect_stdout(term_writer), contextlib.redirect_stderr(term_writer):
+                    sys.excepthook(type(e), e, e.__traceback__)
                 lines = []
-                current_line = ""
-                browser_console.term.write(PS1)
-            except Exception as e:
-                browser_console.term.write(f"\x1b[31mError: {e}\x1b[0m\r\n")
-                lines = []
+        except SyntaxError as e:
+            with contextlib.redirect_stdout(term_writer), contextlib.redirect_stderr(term_writer):
+                sys.excepthook(type(e), e, e.__traceback__)
+            lines = []
+        except Exception as e:
+            with contextlib.redirect_stdout(term_writer), contextlib.redirect_stderr(term_writer):
+                sys.excepthook(type(e), e, e.__traceback__)
+            lines = []
                 current_line = ""
                 browser_console.term.write(PS1)
         elif char == "\t":
