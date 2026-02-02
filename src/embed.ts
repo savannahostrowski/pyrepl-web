@@ -671,6 +671,9 @@ async function createRepl(
         browserConsole.push_char(char.charCodeAt(0));
       }
     });
+
+    // Focus the terminal so user can start typing immediately
+    term.focus();
   }
 
   // Set up button handlers
