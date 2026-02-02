@@ -54,6 +54,8 @@ declare global {
   var pyreplReadonly: boolean;
   var pyreplPromptColor: string;
   var pyreplPygmentsStyle: Record<string, string> | undefined;
+  var pyreplSrcOutput: boolean;
+  var pyreplStartupMessage: boolean;
   // biome-ignore lint/suspicious/noExplicitAny: Python console from Pyodide
   var currentBrowserConsole: any;
 }
@@ -195,7 +197,10 @@ interface PyreplConfig {
   title: string;
   packages: string[];
   src: string | null;
+  srcOutput: boolean;
+  startupMessage: boolean;
   readonly: boolean;
+  fontSize: number;
 }
 
 // Parse all configuration from container data attributes
@@ -250,7 +255,14 @@ function parseConfig(container: HTMLElement): PyreplConfig {
     title: container.dataset.title || "python",
     packages,
     src: container.dataset.src || null,
+    srcOutput:
+      container.dataset.srcOutput === "true" ||
+      container.getAttribute("src-output") === "true",
+    startupMessage:
+      container.dataset.startupMessage !== "false" &&
+      container.getAttribute("startup-message") !== "false",
     readonly: container.dataset.readonly === "true",
+    fontSize: Number.parseInt(container.dataset.fontSize || "14", 10),
   };
 }
 
@@ -502,22 +514,78 @@ async function createTerminal(
 
   // Create terminal container
   const termContainer = document.createElement("div");
+  termContainer.style.flex = "1";
+  termContainer.style.minHeight = "0";
   container.appendChild(termContainer);
   const term = new XTerm.Terminal({
     cursorBlink: !config.readonly,
     cursorStyle: config.readonly ? "bar" : "block",
-    fontSize: 14,
+    fontSize: config.fontSize,
     fontFamily: "monospace",
     theme: config.theme,
     disableStdin: config.readonly,
   });
   term.open(termContainer);
 
+  // Calculate size based on actual rendered character dimensions
+  const calculateSize = () => {
+    // Get actual character dimensions from xterm's internal renderer
+    // biome-ignore lint/suspicious/noExplicitAny: Accessing xterm internals
+    const core = (term as any)._core;
+    const cellWidth = core._renderService?.dimensions?.css?.cell?.width;
+    const cellHeight = core._renderService?.dimensions?.css?.cell?.height;
+
+    if (!cellWidth || !cellHeight) {
+      return null; // Not ready yet
+    }
+
+    // Get the xterm element and compute available space minus padding
+    const xtermElement = termContainer.querySelector(".xterm");
+    if (!xtermElement) {
+      return null;
+    }
+
+    // Get computed padding from the xterm element
+    const style = window.getComputedStyle(xtermElement);
+    const paddingLeft = Number.parseFloat(style.paddingLeft) || 0;
+    const paddingRight = Number.parseFloat(style.paddingRight) || 0;
+    const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(style.paddingBottom) || 0;
+
+    // Use termContainer dimensions and subtract padding
+    const availableWidth =
+      termContainer.clientWidth - paddingLeft - paddingRight;
+    const availableHeight =
+      termContainer.clientHeight - paddingTop - paddingBottom;
+
+    const cols = Math.max(20, Math.floor(availableWidth / cellWidth));
+    const rows = Math.max(5, Math.floor(availableHeight / cellHeight));
+
+    return { rows, cols };
+  };
+
+  // Resize to actual container size after layout
+  requestAnimationFrame(() => {
+    const size = calculateSize();
+    if (size) {
+      term.resize(size.cols, size.rows);
+    }
+  });
+
+  // Re-fit on container resize
+  const resizeObserver = new ResizeObserver(() => {
+    const size = calculateSize();
+    if (size) {
+      term.resize(size.cols, size.rows);
+    }
+  });
+  resizeObserver.observe(termContainer);
+
   return { term, config };
 }
 
 async function createRepl(
-  container: HTMLElement,
+  replContainer: HTMLElement,
   term: Terminal,
   config: PyreplConfig,
 ) {
@@ -530,13 +598,15 @@ async function createRepl(
     await micropip.install(config.packages);
   }
 
-  // Show loaded message (dim gray)
+  // Show loaded message (dim gray) if startup message is enabled
   const loadedPkgs =
     config.packages.length > 0
       ? ` (installed packages: ${config.packages.join(", ")})`
       : "";
   const infoLine = `Python 3.13${loadedPkgs}`;
-  term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+  if (config.startupMessage) {
+    term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+  }
 
   // Expose globals to Python
   globalThis.term = term;
@@ -548,6 +618,8 @@ async function createRepl(
   globalThis.pyreplReadonly = config.readonly;
   globalThis.pyreplPromptColor = config.theme.promptColor || "green";
   globalThis.pyreplPygmentsStyle = config.theme.pygmentsStyle;
+  globalThis.pyreplSrcOutput = config.srcOutput;
+  globalThis.pyreplStartupMessage = config.startupMessage;
 
   // Pre-fetch startup script if specified (before starting REPL)
   if (config.src) {
@@ -576,6 +648,9 @@ async function createRepl(
   // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   const browserConsole = (globalThis as any).currentBrowserConsole;
 
+  // Expose the console on the container element for external access (e.g., virtual keyboard buttons)
+  (replContainer as any).pyreplConsole = browserConsole;
+
   // Clear globals so next REPL starts fresh
   // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   (globalThis as any).currentBrowserConsole = null;
@@ -591,17 +666,121 @@ async function createRepl(
 
   // Only attach input handler if not readonly
   if (!config.readonly) {
+    // Buffer to track what we've sent to Python (for filtering composition replays)
+    let sentBuffer = "";
+    let lastCompositionPart = ""; // Track what we extracted from last composition replay
+
+    // Handle Ctrl+C for copy and Ctrl+V for paste
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (event.type === "keydown" && event.ctrlKey) {
+        if (event.key === "c") {
+          const selection = term.getSelection();
+          if (selection && selection.length > 0) {
+            navigator.clipboard.writeText(selection);
+            term.clearSelection();
+            event.preventDefault();
+            return false; // Prevent xterm from processing this key
+          }
+        } else if (event.key === "v") {
+          event.preventDefault(); // Prevent browser's default paste
+          navigator.clipboard.readText().then((text) => {
+            if (text) {
+              // Send pasted text to Python
+              for (const char of text) {
+                browserConsole.push_char(char.charCodeAt(0));
+              }
+            }
+          });
+          return false; // Prevent xterm from processing this key
+        }
+      }
+      return true; // Let xterm handle other keys
+    });
+
     term.onData((data: string) => {
+      // Filter mobile keyboard auto-space after punctuation
+      // If data is quote+space, dot+space, comma+space, or paren+space, drop the space
+      if (data === '" ' || data === ". " || data === ", " || data === ") ") {
+        data = data[0] as string;
+      }
+
+      // Skip if this is a duplicate of what we just sent via composition replay
+      if (lastCompositionPart) {
+        if (data === lastCompositionPart) {
+          // Exact match - skip and clear
+          lastCompositionPart = "";
+          return;
+        }
+        if (lastCompositionPart.startsWith(data)) {
+          // Partial match (e.g., "," matches ", ") - skip and remember remainder
+          lastCompositionPart = lastCompositionPart.slice(data.length);
+          return;
+        }
+        // No match - clear and continue
+        lastCompositionPart = "";
+      }
+
+      // Filter mobile keyboard composition replay
+      // If data is >1 char and starts with what we've already sent, only send the new part
+      if (data.length > 1 && sentBuffer.length > 0) {
+        // Check if data starts with our buffer (exact match)
+        const startsWithBuffer = data.startsWith(sentBuffer);
+        if (startsWithBuffer) {
+          // Only send the new characters (after the buffer content)
+          const newPart = data.slice(sentBuffer.length);
+          lastCompositionPart = newPart; // Remember to skip duplicate
+          if (newPart) {
+            for (const char of newPart) {
+              browserConsole.push_char(char.charCodeAt(0));
+              const code = char.charCodeAt(0);
+              if (code >= 32 && code < 127) {
+                sentBuffer += char;
+              }
+            }
+          }
+          return;
+        }
+      }
+
+      // Handle backspace BEFORE sending - update buffer first
+      if (data === "\x7f" || data === "\x08") {
+        browserConsole.push_char(data.charCodeAt(0));
+        if (sentBuffer.length > 0) {
+          sentBuffer = sentBuffer.slice(0, -1);
+        }
+        return;
+      }
+
+      // Clear buffer on line-ending events (Enter, Ctrl+C, ESC)
+      if (data === "\r" || data === "\x03" || data === "\x1b") {
+        for (const char of data) {
+          browserConsole.push_char(char.charCodeAt(0));
+        }
+        sentBuffer = "";
+        return;
+      }
+
+      // Send to Python and track what we sent
+      // Don't add escape sequences to buffer (they're cursor movement, not text input)
+      const isEscapeSequence = data.startsWith("\x1b");
       for (const char of data) {
         browserConsole.push_char(char.charCodeAt(0));
+        // Only add printable chars (32-126) to buffer, skip escape sequences and control chars
+        const code = char.charCodeAt(0);
+        if (!isEscapeSequence && code >= 32 && code < 127) {
+          sentBuffer += char;
+        }
       }
     });
+
+    // Focus the terminal so user can start typing immediately
+    term.focus();
   }
 
   // Set up button handlers
   if (config.showHeader && config.showButtons) {
-    const copyBtn = container.querySelector('[data-action="copy"]');
-    const clearBtn = container.querySelector('[data-action="clear"]');
+    const copyBtn = replContainer.querySelector('[data-action="copy"]');
+    const clearBtn = replContainer.querySelector('[data-action="clear"]');
 
     copyBtn?.addEventListener("click", () => {
       // Get all terminal content
