@@ -585,7 +585,7 @@ async function createTerminal(
 }
 
 async function createRepl(
-  container: HTMLElement,
+  replContainer: HTMLElement,
   term: Terminal,
   config: PyreplConfig,
 ) {
@@ -648,6 +648,9 @@ async function createRepl(
   // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   const browserConsole = (globalThis as any).currentBrowserConsole;
 
+  // Expose the console on the container element for external access (e.g., virtual keyboard buttons)
+  (replContainer as any).pyreplConsole = browserConsole;
+
   // Clear globals so next REPL starts fresh
   // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   (globalThis as any).currentBrowserConsole = null;
@@ -672,8 +675,8 @@ async function createRepl(
 
   // Set up button handlers
   if (config.showHeader && config.showButtons) {
-    const copyBtn = container.querySelector('[data-action="copy"]');
-    const clearBtn = container.querySelector('[data-action="clear"]');
+    const copyBtn = replContainer.querySelector('[data-action="copy"]');
+    const clearBtn = replContainer.querySelector('[data-action="clear"]');
 
     copyBtn?.addEventListener("click", () => {
       // Get all terminal content
