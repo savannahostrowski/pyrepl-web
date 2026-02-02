@@ -125,10 +125,9 @@ class BrowserConsole(Console):
         char = self.event_queue.popleft()
         if isinstance(char, int):
             char_str = chr(char)
-            raw = bytes([char])
         else:
             char_str = char
-            raw = char.encode(self.encoding)
+        raw = char_str.encode(self.encoding)
         event = Event("key", char_str, raw)
         return event
 
