@@ -514,6 +514,8 @@ async function createTerminal(
 
   // Create terminal container
   const termContainer = document.createElement("div");
+  termContainer.style.flex = "1";
+  termContainer.style.minHeight = "0";
   container.appendChild(termContainer);
   const term = new XTerm.Terminal({
     cursorBlink: !config.readonly,
@@ -524,6 +526,60 @@ async function createTerminal(
     disableStdin: config.readonly,
   });
   term.open(termContainer);
+
+  // Calculate size based on actual rendered character dimensions
+  const calculateSize = () => {
+    // Get actual character dimensions from xterm's internal renderer
+    // biome-ignore lint/suspicious/noExplicitAny: Accessing xterm internals
+    const core = (term as any)._core;
+    const cellWidth = core._renderService?.dimensions?.css?.cell?.width;
+    const cellHeight = core._renderService?.dimensions?.css?.cell?.height;
+
+    if (!cellWidth || !cellHeight) {
+      return null; // Not ready yet
+    }
+
+    // Get the xterm element and compute available space minus padding
+    const xtermElement = termContainer.querySelector(".xterm");
+    if (!xtermElement) {
+      return null;
+    }
+
+    // Get computed padding from the xterm element
+    const style = window.getComputedStyle(xtermElement);
+    const paddingLeft = Number.parseFloat(style.paddingLeft) || 0;
+    const paddingRight = Number.parseFloat(style.paddingRight) || 0;
+    const paddingTop = Number.parseFloat(style.paddingTop) || 0;
+    const paddingBottom = Number.parseFloat(style.paddingBottom) || 0;
+
+    // Use termContainer dimensions and subtract padding
+    const availableWidth =
+      termContainer.clientWidth - paddingLeft - paddingRight;
+    const availableHeight =
+      termContainer.clientHeight - paddingTop - paddingBottom;
+
+    const cols = Math.max(20, Math.floor(availableWidth / cellWidth));
+    const rows = Math.max(5, Math.floor(availableHeight / cellHeight));
+
+    return { rows, cols };
+  };
+
+  // Resize to actual container size after layout
+  requestAnimationFrame(() => {
+    const size = calculateSize();
+    if (size) {
+      term.resize(size.cols, size.rows);
+    }
+  });
+
+  // Re-fit on container resize
+  const resizeObserver = new ResizeObserver(() => {
+    const size = calculateSize();
+    if (size) {
+      term.resize(size.cols, size.rows);
+    }
+  });
+  resizeObserver.observe(termContainer);
 
   return { term, config };
 }
