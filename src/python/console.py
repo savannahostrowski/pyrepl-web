@@ -538,6 +538,38 @@ async def start_repl():
                     f"\x1b[31msetup() error - {type(e).__name__}: {e}\x1b[0m\r\n"
                 )
 
+    # Expose a helper function to call Python functions and return JSON results
+    def pyrepl_call(func_name, *args):
+        """Call a function from repl_globals and return JSON result."""
+        import json
+        import io
+        if func_name not in repl_globals:
+            return json.dumps({"error": f"Function '{func_name}' not found"})
+        func = repl_globals[func_name]
+        if not callable(func):
+            return json.dumps({"error": f"'{func_name}' is not callable"})
+        
+        # Capture stdout in case function prints instead of returning
+        old_stdout = sys.stdout
+        sys.stdout = capture = io.StringIO()
+        try:
+            result = func(*args)
+            output = capture.getvalue()
+            
+            if result is not None:
+                return json.dumps({"result": result}, default=str)
+            elif output:
+                # Function printed instead of returning
+                return json.dumps({"output": output})
+            else:
+                return json.dumps({"result": None})
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+        finally:
+            sys.stdout = old_stdout
+
+    js.pyreplCall = create_proxy(pyrepl_call)
+
     def get_completions(text):
         """Get all completions for the given text."""
         completions = []
