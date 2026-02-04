@@ -73,7 +73,7 @@ class BrowserConsole(Console):
         self.term.write("\x07")
 
     def clear(self):
-        self.term.write("\x1b[2J\x1b[H")
+        self.term.write("\x1b[2J\x1b[3J\x1b[H")
         self.screen = []
         self.posxy = (0, 0)
 
