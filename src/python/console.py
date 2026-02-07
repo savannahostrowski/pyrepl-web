@@ -570,6 +570,19 @@ async def start_repl():
 
     js.pyreplCall = create_proxy(pyrepl_call)
 
+    def pyrepl_get(var_name):
+        """Get a variable value from the REPL globals. Returns JSON with the value."""
+        import json
+        if var_name not in repl_globals:
+            return json.dumps({"error": f"Variable '{var_name}' not found"})
+        try:
+            value = repl_globals[var_name]
+            return json.dumps({"result": value}, default=str)
+        except Exception as e:
+            return json.dumps({"error": str(e)})
+
+    js.pyreplGet = create_proxy(pyrepl_get)
+
     def get_completions(text):
         """Get all completions for the given text."""
         completions = []
