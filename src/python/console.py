@@ -593,6 +593,8 @@ async def start_repl():
 
     lines = []
     history = []
+    # Expose history to JavaScript via browser_console
+    browser_console.history = history
 
     def handle_tab(current_line, cursor_pos):
         """Handle tab completion, returns (new_line, new_cursor_pos) or None."""
@@ -677,6 +679,10 @@ async def start_repl():
             source = "\n".join(lines)
             try:
                 code = compile(source, "<console>", "single")
+                # Call pre-exec hook if defined (allows tracking command text)
+                pre_exec = repl_globals.get('_pre_exec_hook')
+                if callable(pre_exec):
+                    pre_exec(source)
                 exec_with_redirect(code, repl_globals)
                 history.append(source)
             except SystemExit:
@@ -696,6 +702,10 @@ async def start_repl():
                 # Complete code, execute it
                 if source.strip():
                     history.append(source)
+                # Call pre-exec hook if defined (allows tracking command text)
+                pre_exec = repl_globals.get('_pre_exec_hook')
+                if callable(pre_exec):
+                    pre_exec(source)
                 exec_with_redirect(code, repl_globals)
                 lines = []
         except SyntaxError as e:
