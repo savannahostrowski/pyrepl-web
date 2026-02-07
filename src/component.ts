@@ -8,6 +8,7 @@ export class PyRepl extends LitElement {
     theme: { type: String },
     packages: { type: String },
     replTitle: { type: String, attribute: "repl-title" },
+    noBanner: { type: Boolean, attribute: "no-banner" },
     isReadonly: { type: Boolean, attribute: "readonly" },
     noButtons: { type: Boolean, attribute: "no-buttons" },
     noHeader: { type: Boolean, attribute: "no-header" },
@@ -17,6 +18,7 @@ export class PyRepl extends LitElement {
   declare theme: string;
   declare packages: string;
   declare replTitle: string;
+  declare noBanner: boolean;
   declare isReadonly: boolean;
   declare noButtons: boolean;
   declare noHeader: boolean;
@@ -27,6 +29,7 @@ export class PyRepl extends LitElement {
     this.theme = "catppuccin-mocha";
     this.packages = "";
     this.replTitle = "Python REPL";
+    this.noBanner = false;
     this.isReadonly = false;
     this.noButtons = false;
     this.noHeader = false;
@@ -59,6 +62,7 @@ export class PyRepl extends LitElement {
       showHeader: !this.noHeader,
       showButtons: !this.noButtons,
       title: this.replTitle,
+      showBanner: !this.noBanner,
     });
     repl.init();
   }

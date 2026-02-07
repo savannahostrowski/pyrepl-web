@@ -5,132 +5,97 @@
     <meta charset="UTF-8">
     <title>pyrepl-web test</title>
     <script>
-    // Register custom themes
-    window.pyreplThemes = {
-        // Full custom theme with pygmentsStyle
-        'tokyo-night': {
-            background: '#1a1b26',
-            foreground: '#a9b1d6',
-            promptColor: '#bb9af7',
-            pygmentsStyle: {
-                'Token': '#a9b1d6',
-                'Keyword': '#bb9af7',
-                'String': '#9ece6a',
-                'Number': '#ff9e64',
-                'Comment': '#565f89',
-                'Name.Function': '#7aa2f7',
-                'Name.Builtin': '#7dcfff',
-            }
-        },
-        // Minimal dark theme (inherits mocha colors)
-        'minimal-dark': {
-            background: '#0d1117',
-            foreground: '#c9d1d9',
-        },
-        // Minimal light theme (inherits latte colors)
-        'minimal-light': {
-            background: '#ffffff',
-            foreground: '#24292f',
-            headerBackground: 'pink',
-            headerForeground: '#57606a',
-        },
-        // Custom prompt color (hex)
-        'green-prompt': {
-            background: '#1e1e2e',
-            foreground: '#cdd6f4',
-            promptColor: '#50fa7b',
-        },
-        // Custom prompt color (named)
-        'cyan-prompt': {
-            background: '#282a36',
-            foreground: '#f8f8f2',
-            promptColor: 'cyan',
-        },
-    };
+        // Register custom themes
+        window.pyreplThemes = {
+            // Full custom theme with pygmentsStyle
+            'tokyo-night': {
+                background: '#1a1b26',
+                foreground: '#a9b1d6',
+                promptColor: '#bb9af7',
+                pygmentsStyle: {
+                    'Token': '#a9b1d6',
+                    'Keyword': '#bb9af7',
+                    'String': '#9ece6a',
+                    'Number': '#ff9e64',
+                    'Comment': '#565f89',
+                    'Name.Function': '#7aa2f7',
+                    'Name.Builtin': '#7dcfff',
+                }
+            },
+            // Minimal dark theme (inherits mocha colors)
+            'minimal-dark': {
+                background: '#0d1117',
+                foreground: '#c9d1d9',
+            },
+            // Minimal light theme (inherits latte colors)
+            'minimal-light': {
+                background: '#ffffff',
+                foreground: '#24292f',
+                headerBackground: 'pink',
+                headerForeground: '#57606a',
+            },
+            // Custom prompt color (hex)
+            'green-prompt': {
+                background: '#1e1e2e',
+                foreground: '#cdd6f4',
+                promptColor: '#50fa7b',
+            },
+            // Custom prompt color (named)
+            'cyan-prompt': {
+                background: '#282a36',
+                foreground: '#f8f8f2',
+                promptColor: 'cyan',
+            },
+        };
     </script>
     <script src="/dist/pyrepl.js"></script>
 
 </head>
 
 <body>
-   <h3>Web Component (py-repl)</h3>
-   <py-repl
-       theme="catppuccin-mocha"
-       repl-title="My Python REPL"
-       packages="pandas"
-       src="/demo.py"
-       no-buttons
-   ></py-repl>
+    <h3>Web Component (py-repl)</h3>
+    <py-repl theme="catppuccin-mocha" repl-title="My Python REPL" packages="pandas" src="/demo.py" no-buttons></py-repl>
 
-   <h3>Web Component - Latte theme, no header</h3>
-   <py-repl
-       theme="catppuccin-latte"
-       repl-title="Light Theme"
-       no-header
-   ></py-repl>
+    <h3>Web Component - Latte theme, no header</h3>
+    <py-repl theme="catppuccin-latte" repl-title="Light Theme" no-header></py-repl>
 
-   <h3>Web Component - Readonly</h3>
-   <py-repl
-       repl-title="Readonly REPL"
-       readonly
-   ></py-repl>
+    <h3>Web Component - Readonly</h3>
+    <py-repl repl-title="Readonly REPL" readonly></py-repl>
 
-   <h3>Web Component - Custom Theme (Tokyo Night with pygmentsStyle)</h3>
-   <py-repl
-       theme="tokyo-night"
-       repl-title="Tokyo Night"
-   ></py-repl>
+    <h3>Web Component - Custom Theme (Tokyo Night with pygmentsStyle)</h3>
+    <py-repl theme="tokyo-night" repl-title="Tokyo Night"></py-repl>
 
-   <h3>Minimal Dark Theme (auto-inherits mocha colors)</h3>
-   <py-repl
-       theme="minimal-dark"
-       repl-title="Minimal Dark"
-   ></py-repl>
+    <h3>Minimal Dark Theme (auto-inherits mocha colors)</h3>
+    <py-repl theme="minimal-dark" repl-title="Minimal Dark"></py-repl>
 
-   <h3>Minimal Light Theme (auto-inherits latte colors)</h3>
-   <py-repl
-       theme="minimal-light"
-       repl-title="Minimal Light"
-   ></py-repl>
+    <h3>Minimal Light Theme (auto-inherits latte colors)</h3>
+    <py-repl theme="minimal-light" repl-title="Minimal Light"></py-repl>
 
-   <h3>Custom Prompt Color (hex)</h3>
-   <py-repl
-       theme="green-prompt"
-       repl-title="Green Prompt"
-   ></py-repl>
+    <h3>Custom Prompt Color (hex)</h3>
+    <py-repl theme="green-prompt" repl-title="Green Prompt"></py-repl>
 
-   <h3>Custom Prompt Color (named)</h3>
-   <py-repl
-       theme="cyan-prompt"
-       repl-title="Cyan Prompt"
-   ></py-repl>
+    <h3>Custom Prompt Color (named)</h3>
+    <py-repl theme="cyan-prompt" repl-title="Cyan Prompt"></py-repl>
 
-   <h3>Default Theme (no attributes)</h3>
-   <py-repl></py-repl>
+    <h3>Default Theme (no attributes)</h3>
+    <py-repl></py-repl>
 
-   <h3>With Packages</h3>
-   <py-repl
-       packages="requests, pydantic"
-       repl-title="With Packages"
-   ></py-repl>
+    <h3>With Packages</h3>
+    <py-repl packages="requests, pydantic" repl-title="With Packages"></py-repl>
 
-   <h3>Legacy (div.pyrepl)</h3>
-   <div class="pyrepl"
-       data-theme="catppuccin-mocha"
-       data-title="Legacy REPL"
-       data-packa="pandas"
-       data-header="true"
-       data-buttons="true"
-       data-src="/demo.py"
-   ></div>
+    <h3>No banner</h3>
+    <py-repl no-banner repl-title="No Banner"></py-repl>
 
-   <h3>Legacy - Light Theme</h3>
-   <div class="pyrepl"
-       data-theme="catppuccin-latte"
-       data-title="Legacy Light"
-       data-header="true"
-       data-buttons="true"
-   ></div>
+    <h3>No buttons</h3>
+    <py-repl no-buttons repl-title="No Buttons"></py-repl>
+
+    <h3>Legacy (div.pyrepl)</h3>
+    <div class="pyrepl" data-theme="catppuccin-mocha" data-title="Legacy REPL" data-packa="pandas" data-header="true"
+        data-buttons="true" data-src="/demo.py"></div>
+
+    <h3>Legacy - Light Theme</h3>
+    <div class="pyrepl" data-theme="catppuccin-latte" data-title="Legacy Light" data-header="true" data-buttons="true">
+    </div>
 </body>
 
 </html>

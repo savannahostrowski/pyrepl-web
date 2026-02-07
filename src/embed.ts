@@ -50,6 +50,7 @@ declare global {
   var pyreplTheme: string;
   var pyreplPygmentsFallback: string;
   var pyreplInfo: string;
+  var pyreplBanner: boolean;
   var pyreplStartupScript: string | undefined;
   var pyreplReadonly: boolean;
   var pyreplPromptColor: string;
@@ -196,6 +197,7 @@ interface PyreplConfig {
   packages: string[];
   src: string | null;
   readonly: boolean;
+  showBanner: boolean;
 }
 
 // Parse all configuration from container data attributes
@@ -251,6 +253,7 @@ function parseConfig(container: HTMLElement): PyreplConfig {
     packages,
     src: container.dataset.src || null,
     readonly: container.dataset.readonly === "true",
+    showBanner: container.dataset.noBanner !== "true",
   };
 }
 
@@ -283,6 +286,7 @@ export class PyReplEmbed {
   private showHeader: boolean;
   private showButtons: boolean;
   private title: string;
+  private showBanner: boolean;
 
   constructor(config: {
     container: HTMLElement;
@@ -293,6 +297,7 @@ export class PyReplEmbed {
     showHeader?: boolean;
     showButtons?: boolean;
     title?: string;
+    showBanner?: boolean;
   }) {
     this.container = config.container;
     this.theme = config.theme || defaultTheme;
@@ -304,6 +309,8 @@ export class PyReplEmbed {
     this.showButtons =
       config.showButtons !== undefined ? config.showButtons : true;
     this.title = config.title || "python";
+    this.showBanner =
+      config.showBanner !== undefined ? config.showBanner : true;
   }
 
   async init() {
@@ -316,6 +323,7 @@ export class PyReplEmbed {
     this.container.dataset.header = this.showHeader ? "true" : "false";
     this.container.dataset.buttons = this.showButtons ? "true" : "false";
     this.container.dataset.title = this.title;
+    this.container.dataset.noBanner = this.showBanner ? "false" : "true";
 
     // Create terminal immediately (fast, shows UI)
     const { term, config } = await createTerminal(this.container);
@@ -536,7 +544,9 @@ async function createRepl(
       ? ` (installed packages: ${config.packages.join(", ")})`
       : "";
   const infoLine = `Python 3.13${loadedPkgs}`;
-  term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+  if (config.showBanner) {
+    term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+  }
 
   // Expose globals to Python
   globalThis.term = term;
@@ -548,6 +558,7 @@ async function createRepl(
   globalThis.pyreplReadonly = config.readonly;
   globalThis.pyreplPromptColor = config.theme.promptColor || "green";
   globalThis.pyreplPygmentsStyle = config.theme.pygmentsStyle;
+  globalThis.pyreplBanner = config.showBanner;
 
   // Pre-fetch startup script if specified (before starting REPL)
   if (config.src) {
@@ -588,6 +599,7 @@ async function createRepl(
   globalThis.pyreplReadonly = false;
   globalThis.pyreplPromptColor = "";
   globalThis.pyreplPygmentsStyle = undefined;
+  globalThis.pyreplBanner = false;
 
   // Only attach input handler if not readonly
   if (!config.readonly) {
@@ -618,7 +630,9 @@ async function createRepl(
 
     clearBtn?.addEventListener("click", () => {
       term.reset();
-      term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+      if (config.showBanner) {
+        term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+      }
       term.write("\x1b[32m>>> \x1b[0m");
     });
   }

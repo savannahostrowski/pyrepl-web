@@ -8,7 +8,7 @@
     "README.md"
   ],
   "scripts": {
-    "dev": "bun run src/server.ts",
+    "dev": "bun run build && bun --hot src/server.ts --watch",
     "build": "bun run build.ts",
     "prepare": "husky"
   },

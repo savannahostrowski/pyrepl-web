@@ -145,6 +145,7 @@ async def start_repl():
     theme_name = getattr(js, "pyreplTheme", "catppuccin-mocha")
     pygments_fallback = getattr(js, "pyreplPygmentsFallback", "catppuccin-mocha")
     info_line = getattr(js, "pyreplInfo", "Python 3.13 (Pyodide)")
+    show_banner = getattr(js, "pyreplBanner", True)
     readonly = getattr(js, "pyreplReadonly", False)
     prompt_color = getattr(js, "pyreplPromptColor", None) or "green"
     pygments_style_js = getattr(js, "pyreplPygmentsStyle", None)
@@ -254,7 +255,8 @@ async def start_repl():
 
     def clear():
         browser_console.clear()
-        browser_console.term.write(f"\x1b[90m{info_line}\x1b[0m\r\n")
+        if show_banner:
+            browser_console.term.write(f"\x1b[90m{info_line}\x1b[0m\r\n")
 
     class Exit:
         def __repr__(self):
