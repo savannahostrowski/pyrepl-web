@@ -18,7 +18,7 @@ That's it! No install needed.
 
 ## Features
 
-- **Python 3.13** in the browser via WebAssembly (Pyodide)
+- **Python 3.14** in the browser via WebAssembly (Pyodide)
 - **Syntax highlighting** powered by Pygments
 - **Tab completion** for modules, functions, and variables
 - **Command history** with up/down arrows
@@ -39,7 +39,7 @@ That's it! No install needed.
 | `no-header` | Hide the header bar (boolean attribute) | not set |
 | `no-buttons` | Hide copy/clear buttons in header (boolean attribute) | not set |
 | `readonly` | Disable input, display only (boolean attribute) | not set |
-| `no-banner` | Hide the "Python 3.13" startup banner (boolean attribute) | not set |
+| `no-banner` | Hide the Python version startup banner (boolean attribute) | not set |
 
 ### Startup Scripts
 
