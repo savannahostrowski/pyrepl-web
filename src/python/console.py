@@ -150,6 +150,8 @@ async def start_repl():
     prompt_color = getattr(js, "pyreplPromptColor", None) or "green"
     pygments_style_js = getattr(js, "pyreplPygmentsStyle", None)
     micropip_ready = getattr(js, "pyreplMicropipReady", None)
+    mark_ready = getattr(js, "pyreplMarkReady", None)
+    mark_pygments_ready = getattr(js, "pyreplMarkPygmentsReady", None)
 
     # Build prompt strings with configured color
     color_code = color_to_ansi(prompt_color)
@@ -207,6 +209,8 @@ async def start_repl():
                 formatter = Terminal256Formatter(style=style)
 
             pygments_loaded = True
+            if mark_pygments_ready is not None:
+                mark_pygments_ready()
         except Exception as e:
             browser_console.term.write(f"[ERROR] Pygments load failed: {e}\r\n")
 
@@ -322,9 +326,13 @@ async def start_repl():
 
     # In readonly mode, don't show prompt or accept input
     if readonly:
+        if mark_ready is not None:
+            mark_ready()
         return
 
     browser_console.term.write(PS1)
+    if mark_ready is not None:
+        mark_ready()
     lines = []
     current_line = ""
 

@@ -187,13 +187,45 @@
       container.innerHTML = '<div class="pyrepl"></div>';
 
       // Clear previous script
-      const oldScript = document.getElementById(`script-${version}`);
+      const oldScript = document.getElementById(`loader-${version}`);
       if (oldScript) oldScript.remove();
 
       // Load script and measure
       return new Promise((resolve) => {
+        let finished = false;
+        let terminalCheck;
+
+        const recordTiming = (key, elementId, value) => {
+          timings[version][key] = value;
+          document.getElementById(elementId).textContent = formatTime(value);
+        };
+
+        const finish = () => {
+          if (finished) return;
+          finished = true;
+          if (terminalCheck) clearInterval(terminalCheck);
+          resolve();
+          updateSummary();
+        };
+
+        if (version === 'after') {
+          const lifecycleEvents = {
+            'pyrepl-terminal-ready': ['terminalRender', `terminal-${version}`],
+            'pyrepl-pyodide-ready': ['pyodide', `pyodide-${version}`],
+            'pyrepl-ready': ['interactive', `interactive-${version}`],
+            'pyrepl-pygments-ready': ['pygments', `pygments-${version}`],
+          };
+
+          for (const [eventName, [key, elementId]] of Object.entries(lifecycleEvents)) {
+            container.addEventListener(eventName, (event) => {
+              recordTiming(key, elementId, event.detail.timestamp - startTime);
+              if (eventName === 'pyrepl-ready') finish();
+            }, { once: true });
+          }
+        }
+
         const script = document.createElement('script');
-        script.id = `script-${version}`;
+        script.id = `loader-${version}`;
         script.src = scriptSrc;
         // Don't set type="module" for the new version - wrapper handles it
         if (version === 'before') {
@@ -203,40 +235,40 @@
         const scriptLoadStart = performance.now();
         script.onload = () => {
           const scriptLoadTime = performance.now() - scriptLoadStart;
-          timings[version].scriptLoad = scriptLoadTime;
-          document.getElementById(`script-${version}`).textContent = formatTime(scriptLoadTime);
+          recordTiming('scriptLoad', `script-${version}`, scriptLoadTime);
 
           // Wait a bit for initialization
           setTimeout(() => {
             // Check for terminal render
-            const terminalCheck = setInterval(() => {
+            terminalCheck = setInterval(() => {
               const xtermEl = container.querySelector('.xterm');
               if (xtermEl && !timings[version].terminalRender) {
-                timings[version].terminalRender = performance.now() - startTime;
-                document.getElementById(`terminal-${version}`).textContent = formatTime(timings[version].terminalRender);
+                recordTiming('terminalRender', `terminal-${version}`, performance.now() - startTime);
               }
 
               // Check for prompt (REPL interactive)
               const content = container.textContent || '';
-              if (content.includes('>>>') && !timings[version].interactive) {
-                timings[version].interactive = performance.now() - startTime;
-                document.getElementById(`interactive-${version}`).textContent = formatTime(timings[version].interactive);
+              if (content.includes('>>>')) {
+                if (!timings[version].interactive) {
+                  recordTiming('interactive', `interactive-${version}`, performance.now() - startTime);
+                }
 
-                // Estimate Pyodide ready time (slightly before prompt)
+                // Older builds do not emit lifecycle events.
                 if (!timings[version].pyodide) {
-                  timings[version].pyodide = timings[version].interactive - 100;
-                  document.getElementById(`pyodide-${version}`).textContent = formatTime(timings[version].pyodide);
+                  recordTiming('pyodide', `pyodide-${version}`, timings[version].interactive - 100);
                 }
 
                 clearInterval(terminalCheck);
 
-                // Check for syntax highlighting after a delay
-                setTimeout(() => {
-                  timings[version].pygments = performance.now() - startTime;
-                  document.getElementById(`pygments-${version}`).textContent = formatTime(timings[version].pygments);
-                  resolve();
-                  updateSummary();
-                }, 3000);
+                if (version === 'before') {
+                  // Older builds do not expose Pygments readiness.
+                  setTimeout(() => {
+                    recordTiming('pygments', `pygments-${version}`, performance.now() - startTime);
+                    finish();
+                  }, 3000);
+                } else {
+                  finish();
+                }
               }
             }, 50);
           }, 100);

@@ -56,6 +56,8 @@ declare global {
   var pyreplPromptColor: string;
   var pyreplPygmentsStyle: Record<string, string> | undefined;
   var pyreplMicropipReady: Promise<unknown> | undefined;
+  var pyreplMarkReady: (() => void) | undefined;
+  var pyreplMarkPygmentsReady: (() => void) | undefined;
   // biome-ignore lint/suspicious/noExplicitAny: Python console from Pyodide
   var currentBrowserConsole: any;
 }
@@ -65,6 +67,39 @@ let consoleCodePromise: Promise<string> | null = null;
 
 // Queue to serialize REPL initialization (they share globals)
 let initQueue: Promise<void> = Promise.resolve();
+
+type PyreplLifecycleEvent =
+  | "pyrepl-terminal-ready"
+  | "pyrepl-pyodide-ready"
+  | "pyrepl-ready"
+  | "pyrepl-pygments-ready";
+
+function dispatchLifecycleEvent(
+  container: HTMLElement,
+  name: PyreplLifecycleEvent,
+  startupStart: number,
+) {
+  const timestamp = performance.now();
+  container.dispatchEvent(
+    new CustomEvent(name, {
+      bubbles: true,
+      detail: { timestamp, duration: timestamp - startupStart },
+    }),
+  );
+}
+
+function observePyodideReady(
+  container: HTMLElement,
+  startupStart: number,
+  pyodideReady: Promise<PyodideInterface>,
+) {
+  void pyodideReady.then(
+    () => {
+      dispatchLifecycleEvent(container, "pyrepl-pyodide-ready", startupStart);
+    },
+    () => undefined,
+  );
+}
 
 // Full builtin themes with all ANSI colors
 const builtinThemes: Record<string, FullTheme> = {
@@ -315,6 +350,7 @@ export class PyReplEmbed {
   }
 
   async init() {
+    const startupStart = performance.now();
     this.container.dataset.theme = this.theme;
     this.container.dataset.packages = this.packages.join(",");
     this.container.dataset.readonly = this.readonly ? "true" : "false";
@@ -329,13 +365,14 @@ export class PyReplEmbed {
     // Start Python while the terminal code loads so the two largest startup
     // tasks happen in parallel.
     const pyodideReady = getPyodide();
+    observePyodideReady(this.container, startupStart, pyodideReady);
 
     // Create terminal immediately (fast, shows UI)
-    const { term, config } = await createTerminal(this.container);
+    const { term, config } = await createTerminal(this.container, startupStart);
 
     // Queue the Python REPL initialization to avoid race conditions with shared globals
     initQueue = initQueue.then(() =>
-      createRepl(this.container, term, config, pyodideReady),
+      createRepl(this.container, term, config, pyodideReady, startupStart),
     );
     await initQueue;
   }
@@ -500,6 +537,7 @@ function createHeader(config: PyreplConfig): HTMLElement {
 // Create terminal UI without initializing Python (fast, shows background immediately)
 async function createTerminal(
   container: HTMLElement,
+  startupStart = performance.now(),
 ): Promise<{ term: Terminal; config: PyreplConfig }> {
   injectStyles();
 
@@ -527,6 +565,7 @@ async function createTerminal(
     disableStdin: config.readonly,
   });
   term.open(termContainer);
+  dispatchLifecycleEvent(container, "pyrepl-terminal-ready", startupStart);
 
   return { term, config };
 }
@@ -536,6 +575,7 @@ async function createRepl(
   term: Terminal,
   config: PyreplConfig,
   pyodideReady: Promise<PyodideInterface> = getPyodide(),
+  startupStart = performance.now(),
 ) {
   const pyodide = await pyodideReady;
   const micropipReady = pyodide.loadPackage("micropip");
@@ -568,6 +608,10 @@ async function createRepl(
   globalThis.pyreplPromptColor = config.theme.promptColor || "green";
   globalThis.pyreplPygmentsStyle = config.theme.pygmentsStyle;
   globalThis.pyreplMicropipReady = micropipReady;
+  globalThis.pyreplMarkReady = () =>
+    dispatchLifecycleEvent(container, "pyrepl-ready", startupStart);
+  globalThis.pyreplMarkPygmentsReady = () =>
+    dispatchLifecycleEvent(container, "pyrepl-pygments-ready", startupStart);
   globalThis.pyreplBanner = config.showBanner;
 
   // Pre-fetch startup script if specified (before starting REPL)
@@ -610,6 +654,8 @@ async function createRepl(
   globalThis.pyreplPromptColor = "";
   globalThis.pyreplPygmentsStyle = undefined;
   globalThis.pyreplMicropipReady = undefined;
+  globalThis.pyreplMarkReady = undefined;
+  globalThis.pyreplMarkPygmentsReady = undefined;
   globalThis.pyreplBanner = false;
 
   // Only attach input handler if not readonly
@@ -672,16 +718,21 @@ async function setup() {
 
   // Create all terminals first (fast, shows backgrounds immediately)
   const repls = await Promise.all(
-    Array.from(containers).map(async (container) => ({
-      container,
-      ...(await createTerminal(container)),
-    })),
+    Array.from(containers).map(async (container) => {
+      const startupStart = performance.now();
+      observePyodideReady(container, startupStart, pyodideReady);
+      return {
+        container,
+        startupStart,
+        ...(await createTerminal(container, startupStart)),
+      };
+    }),
   );
 
   // Queue Python REPL initialization to avoid race conditions with shared globals
-  for (const { container, term, config } of repls) {
+  for (const { container, term, config, startupStart } of repls) {
     initQueue = initQueue.then(() =>
-      createRepl(container, term, config, pyodideReady),
+      createRepl(container, term, config, pyodideReady, startupStart),
     );
   }
   await initQueue;

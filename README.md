@@ -41,6 +41,19 @@ That's it! No install needed.
 | `readonly` | Disable input, display only (boolean attribute) | not set |
 | `no-banner` | Hide the "Python 3.13" startup banner (boolean attribute) | not set |
 
+### Lifecycle Events
+
+The component emits bubbling lifecycle events for measuring startup. Each event's
+`detail` contains a `timestamp` from `performance.now()` and the `duration` in
+milliseconds since that REPL began initializing.
+
+| Event | Emitted when |
+|-------|--------------|
+| `pyrepl-terminal-ready` | The terminal is rendered |
+| `pyrepl-pyodide-ready` | The shared Pyodide runtime is initialized |
+| `pyrepl-ready` | The REPL is ready for input |
+| `pyrepl-pygments-ready` | Syntax highlighting is available |
+
 ### Startup Scripts
 
 Use `src` to preload a Python script that sets up the environment:
