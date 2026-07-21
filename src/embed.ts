@@ -55,6 +55,7 @@ declare global {
   var pyreplReadonly: boolean;
   var pyreplPromptColor: string;
   var pyreplPygmentsStyle: Record<string, string> | undefined;
+  var pyreplMicropipReady: Promise<unknown> | undefined;
   // biome-ignore lint/suspicious/noExplicitAny: Python console from Pyodide
   var currentBrowserConsole: any;
 }
@@ -325,11 +326,17 @@ export class PyReplEmbed {
     this.container.dataset.title = this.title;
     this.container.dataset.noBanner = this.showBanner ? "false" : "true";
 
+    // Start Python while the terminal code loads so the two largest startup
+    // tasks happen in parallel.
+    const pyodideReady = getPyodide();
+
     // Create terminal immediately (fast, shows UI)
     const { term, config } = await createTerminal(this.container);
 
     // Queue the Python REPL initialization to avoid race conditions with shared globals
-    initQueue = initQueue.then(() => createRepl(this.container, term, config));
+    initQueue = initQueue.then(() =>
+      createRepl(this.container, term, config, pyodideReady),
+    );
     await initQueue;
   }
 }
@@ -528,12 +535,14 @@ async function createRepl(
   container: HTMLElement,
   term: Terminal,
   config: PyreplConfig,
+  pyodideReady: Promise<PyodideInterface> = getPyodide(),
 ) {
-  const pyodide = await getPyodide();
-  await pyodide.loadPackage("micropip");
+  const pyodide = await pyodideReady;
+  const micropipReady = pyodide.loadPackage("micropip");
 
   // Preload packages if specified
   if (config.packages.length > 0) {
+    await micropipReady;
     const micropip = pyodide.pyimport("micropip");
     await micropip.install(config.packages);
   }
@@ -558,6 +567,7 @@ async function createRepl(
   globalThis.pyreplReadonly = config.readonly;
   globalThis.pyreplPromptColor = config.theme.promptColor || "green";
   globalThis.pyreplPygmentsStyle = config.theme.pygmentsStyle;
+  globalThis.pyreplMicropipReady = micropipReady;
   globalThis.pyreplBanner = config.showBanner;
 
   // Pre-fetch startup script if specified (before starting REPL)
@@ -599,6 +609,7 @@ async function createRepl(
   globalThis.pyreplReadonly = false;
   globalThis.pyreplPromptColor = "";
   globalThis.pyreplPygmentsStyle = undefined;
+  globalThis.pyreplMicropipReady = undefined;
   globalThis.pyreplBanner = false;
 
   // Only attach input handler if not readonly
@@ -655,6 +666,10 @@ async function setup() {
     el.dataset.pyreplInitialized = "true";
   }
 
+  // Start Python while the terminal code loads so the two largest startup
+  // tasks happen in parallel.
+  const pyodideReady = getPyodide();
+
   // Create all terminals first (fast, shows backgrounds immediately)
   const repls = await Promise.all(
     Array.from(containers).map(async (container) => ({
@@ -665,7 +680,9 @@ async function setup() {
 
   // Queue Python REPL initialization to avoid race conditions with shared globals
   for (const { container, term, config } of repls) {
-    initQueue = initQueue.then(() => createRepl(container, term, config));
+    initQueue = initQueue.then(() =>
+      createRepl(container, term, config, pyodideReady),
+    );
   }
   await initQueue;
 }

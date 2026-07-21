@@ -149,6 +149,7 @@ async def start_repl():
     readonly = getattr(js, "pyreplReadonly", False)
     prompt_color = getattr(js, "pyreplPromptColor", None) or "green"
     pygments_style_js = getattr(js, "pyreplPygmentsStyle", None)
+    micropip_ready = getattr(js, "pyreplMicropipReady", None)
 
     # Build prompt strings with configured color
     color_code = color_to_ansi(prompt_color)
@@ -158,7 +159,6 @@ async def start_repl():
     # Expose to JS so it can send input (signals JS can proceed to next REPL)
     js.currentBrowserConsole = browser_console
 
-    import micropip
     import rlcompleter
     import re
     import asyncio
@@ -171,6 +171,10 @@ async def start_repl():
     async def load_pygments():
         nonlocal pygments_loaded, lexer, formatter
         try:
+            if micropip_ready is not None:
+                await micropip_ready
+            import micropip
+
             await micropip.install(["pygments", "catppuccin[pygments]"])
             from pygments.lexers import Python3Lexer
             from pygments.formatters import Terminal256Formatter
