@@ -55,7 +55,7 @@ declare global {
   var pyreplReadonly: boolean;
   var pyreplPromptColor: string;
   var pyreplPygmentsStyle: Record<string, string> | undefined;
-  var pyreplMicropipReady: Promise<unknown> | undefined;
+  var pyreplLoadMicropip: (() => Promise<unknown>) | undefined;
   var pyreplMarkReady: (() => void) | undefined;
   var pyreplMarkPygmentsReady: (() => void) | undefined;
   // biome-ignore lint/suspicious/noExplicitAny: Python console from Pyodide
@@ -578,11 +578,15 @@ async function createRepl(
   startupStart = performance.now(),
 ) {
   const pyodide = await pyodideReady;
-  const micropipReady = pyodide.loadPackage("micropip");
+  let micropipReady: Promise<unknown> | undefined;
+  const loadMicropip = () => {
+    micropipReady ??= pyodide.loadPackage("micropip");
+    return micropipReady;
+  };
 
   // Preload packages if specified
   if (config.packages.length > 0) {
-    await micropipReady;
+    await loadMicropip();
     const micropip = pyodide.pyimport("micropip");
     await micropip.install(config.packages);
   }
@@ -607,7 +611,7 @@ async function createRepl(
   globalThis.pyreplReadonly = config.readonly;
   globalThis.pyreplPromptColor = config.theme.promptColor || "green";
   globalThis.pyreplPygmentsStyle = config.theme.pygmentsStyle;
-  globalThis.pyreplMicropipReady = micropipReady;
+  globalThis.pyreplLoadMicropip = loadMicropip;
   globalThis.pyreplMarkReady = () =>
     dispatchLifecycleEvent(container, "pyrepl-ready", startupStart);
   globalThis.pyreplMarkPygmentsReady = () =>
@@ -653,7 +657,7 @@ async function createRepl(
   globalThis.pyreplReadonly = false;
   globalThis.pyreplPromptColor = "";
   globalThis.pyreplPygmentsStyle = undefined;
-  globalThis.pyreplMicropipReady = undefined;
+  globalThis.pyreplLoadMicropip = undefined;
   globalThis.pyreplMarkReady = undefined;
   globalThis.pyreplMarkPygmentsReady = undefined;
   globalThis.pyreplBanner = false;

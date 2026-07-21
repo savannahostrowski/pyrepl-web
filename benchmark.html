@@ -226,7 +226,7 @@
 
         const script = document.createElement('script');
         script.id = `loader-${version}`;
-        script.src = scriptSrc;
+        script.src = `${scriptSrc}?benchmark=${Date.now()}`;
         // Don't set type="module" for the new version - wrapper handles it
         if (version === 'before') {
           script.type = 'module';

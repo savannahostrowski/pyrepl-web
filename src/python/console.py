@@ -3,7 +3,7 @@ import sys
 from _pyrepl.console import Console, Event
 from collections import deque
 import js
-from pyodide.ffi import create_proxy
+from pyodide.ffi import create_once_callable, create_proxy
 
 # ANSI color codes
 ANSI_COLORS = {
@@ -149,7 +149,7 @@ async def start_repl():
     readonly = getattr(js, "pyreplReadonly", False)
     prompt_color = getattr(js, "pyreplPromptColor", None) or "green"
     pygments_style_js = getattr(js, "pyreplPygmentsStyle", None)
-    micropip_ready = getattr(js, "pyreplMicropipReady", None)
+    load_micropip = getattr(js, "pyreplLoadMicropip", None)
     mark_ready = getattr(js, "pyreplMarkReady", None)
     mark_pygments_ready = getattr(js, "pyreplMarkPygmentsReady", None)
 
@@ -163,7 +163,6 @@ async def start_repl():
 
     import rlcompleter
     import re
-    import asyncio
 
     # Lazy-load Pygments in background while REPL starts
     pygments_loaded = False
@@ -173,8 +172,8 @@ async def start_repl():
     async def load_pygments():
         nonlocal pygments_loaded, lexer, formatter
         try:
-            if micropip_ready is not None:
-                await micropip_ready
+            if load_micropip is not None:
+                await load_micropip()
             import micropip
 
             await micropip.install(["pygments", "catppuccin[pygments]"])
@@ -215,7 +214,7 @@ async def start_repl():
             browser_console.term.write(f"[ERROR] Pygments load failed: {e}\r\n")
 
     # Start loading Pygments in background (non-blocking)
-    asyncio.create_task(load_pygments())
+    js.setTimeout(create_once_callable(load_pygments), 0)
 
     def syntax_highlight(code):
         if not code:
