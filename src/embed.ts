@@ -313,6 +313,22 @@ function getConsoleCode(): Promise<string> {
   return consoleCodePromise;
 }
 
+async function fetchStartupScript(
+  src: string | null | undefined,
+): Promise<string | undefined> {
+  if (!src) return undefined;
+
+  try {
+    const response = await fetch(src);
+    if (response.ok) return await response.text();
+    console.warn(`pyrepl-web: failed to fetch script from ${src}`);
+  } catch (error) {
+    console.warn(`pyrepl-web: error fetching script from ${src}`, error);
+  }
+
+  return undefined;
+}
+
 export class PyReplEmbed {
   private container: HTMLElement;
   private theme: string;
@@ -351,6 +367,7 @@ export class PyReplEmbed {
 
   async init() {
     const startupStart = performance.now();
+    const startupScriptReady = fetchStartupScript(this.src);
     this.container.dataset.theme = this.theme;
     this.container.dataset.packages = this.packages.join(",");
     this.container.dataset.readonly = this.readonly ? "true" : "false";
@@ -372,7 +389,14 @@ export class PyReplEmbed {
 
     // Queue the Python REPL initialization to avoid race conditions with shared globals
     initQueue = initQueue.then(() =>
-      createRepl(this.container, term, config, pyodideReady, startupStart),
+      createRepl(
+        this.container,
+        term,
+        config,
+        pyodideReady,
+        startupStart,
+        startupScriptReady,
+      ),
     );
     await initQueue;
   }
@@ -576,6 +600,7 @@ async function createRepl(
   config: PyreplConfig,
   pyodideReady: Promise<PyodideInterface> = getPyodide(),
   startupStart = performance.now(),
+  startupScriptReady = fetchStartupScript(config.src),
 ) {
   const pyodide = await pyodideReady;
   let micropipReady: Promise<unknown> | undefined;
@@ -618,18 +643,9 @@ async function createRepl(
     dispatchLifecycleEvent(container, "pyrepl-pygments-ready", startupStart);
   globalThis.pyreplBanner = config.showBanner;
 
-  // Pre-fetch startup script if specified (before starting REPL)
-  if (config.src) {
-    try {
-      const response = await fetch(config.src);
-      if (response.ok) {
-        globalThis.pyreplStartupScript = await response.text();
-      } else {
-        console.warn(`pyrepl-web: failed to fetch script from ${config.src}`);
-      }
-    } catch (e) {
-      console.warn(`pyrepl-web: error fetching script from ${config.src}`, e);
-    }
+  const startupScript = await startupScriptReady;
+  if (startupScript !== undefined) {
+    globalThis.pyreplStartupScript = startupScript;
   }
 
   // Load and start the Python REPL
@@ -724,19 +740,34 @@ async function setup() {
   const repls = await Promise.all(
     Array.from(containers).map(async (container) => {
       const startupStart = performance.now();
+      const startupScriptReady = fetchStartupScript(container.dataset.src);
       observePyodideReady(container, startupStart, pyodideReady);
       return {
         container,
         startupStart,
+        startupScriptReady,
         ...(await createTerminal(container, startupStart)),
       };
     }),
   );
 
   // Queue Python REPL initialization to avoid race conditions with shared globals
-  for (const { container, term, config, startupStart } of repls) {
+  for (const {
+    container,
+    term,
+    config,
+    startupStart,
+    startupScriptReady,
+  } of repls) {
     initQueue = initQueue.then(() =>
-      createRepl(container, term, config, pyodideReady, startupStart),
+      createRepl(
+        container,
+        term,
+        config,
+        pyodideReady,
+        startupStart,
+        startupScriptReady,
+      ),
     );
   }
   await initQueue;
