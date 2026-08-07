@@ -158,9 +158,6 @@ async def start_repl():
     PS1 = f"\x1b[{color_code}m>>> \x1b[0m"
     PS2 = f"\x1b[{color_code}m... \x1b[0m"
 
-    # Expose to JS so it can send input (signals JS can proceed to next REPL)
-    js.currentBrowserConsole = browser_console
-
     import rlcompleter
     import re
 
@@ -213,8 +210,10 @@ async def start_repl():
         except Exception as e:
             browser_console.term.write(f"[ERROR] Pygments load failed: {e}\r\n")
 
-    # Start loading Pygments in background (non-blocking)
-    js.setTimeout(create_once_callable(load_pygments), 0)
+    # Let JavaScript start Pygments on first user input so highlighting never
+    # competes with REPL initialization on pages with multiple components.
+    if not readonly:
+        js.currentPygmentsLoader = create_once_callable(load_pygments)
 
     def syntax_highlight(code):
         if not code:
@@ -322,6 +321,9 @@ async def start_repl():
         """Extract the word to complete from the end of the line."""
         match = re.search(r"[\w.]*$", line)
         return match.group(0) if match else ""
+
+    # Signal that this console has finished setup and JS can initialize the next one.
+    js.currentBrowserConsole = browser_console
 
     # In readonly mode, don't show prompt or accept input
     if readonly:

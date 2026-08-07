@@ -52,7 +52,7 @@ milliseconds since that REPL began initializing.
 | `pyrepl-terminal-ready` | The terminal is rendered |
 | `pyrepl-pyodide-ready` | The shared Pyodide runtime is initialized |
 | `pyrepl-ready` | The REPL is ready for input |
-| `pyrepl-pygments-ready` | Syntax highlighting is available |
+| `pyrepl-pygments-ready` | Syntax highlighting is available after the first user input |
 
 ### Startup Scripts
 

@@ -58,6 +58,7 @@ declare global {
   var pyreplLoadMicropip: (() => Promise<unknown>) | undefined;
   var pyreplMarkReady: (() => void) | undefined;
   var pyreplMarkPygmentsReady: (() => void) | undefined;
+  var currentPygmentsLoader: (() => Promise<unknown>) | null;
   // biome-ignore lint/suspicious/noExplicitAny: Python console from Pyodide
   var currentBrowserConsole: any;
 }
@@ -660,10 +661,12 @@ async function createRepl(
   }
   // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   const browserConsole = (globalThis as any).currentBrowserConsole;
+  const loadPygments = globalThis.currentPygmentsLoader;
 
   // Clear globals so next REPL starts fresh
   // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   (globalThis as any).currentBrowserConsole = null;
+  globalThis.currentPygmentsLoader = null;
   // biome-ignore lint/suspicious/noExplicitAny: Python-set global
   (globalThis as any).term = null;
   globalThis.pyreplStartupScript = undefined;
@@ -680,7 +683,12 @@ async function createRepl(
 
   // Only attach input handler if not readonly
   if (!config.readonly) {
+    let pygmentsStarted = false;
     term.onData((data: string) => {
+      if (!pygmentsStarted && loadPygments) {
+        pygmentsStarted = true;
+        void loadPygments();
+      }
       for (const char of data) {
         browserConsole.push_char(char.charCodeAt(0));
       }
