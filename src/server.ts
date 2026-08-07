@@ -31,7 +31,10 @@ const server = Bun.serve({
       const file = Bun.file(url.pathname.slice(1));
       if (await file.exists()) {
         return new Response(file, {
-          headers: { "Content-Type": "application/javascript" },
+          headers: {
+            "Content-Type": "application/javascript",
+            "Cache-Control": "no-store",
+          },
         });
       }
     }
