@@ -1,4 +1,5 @@
 import type { PyodideInterface } from "pyodide";
+import type { PyCallable, PyProxy } from "pyodide/ffi";
 
 // Re-export Terminal type for use throughout the file
 type Terminal = import("@xterm/xterm").Terminal;
@@ -45,29 +46,28 @@ declare global {
   interface Window {
     pyreplThemes?: Record<string, PyreplTheme>;
   }
-  // Globals exposed to Python via Pyodide
-  var term: Terminal;
-  var pyreplTheme: string;
-  var pyreplPygmentsFallback: string;
-  var pyreplInfo: string;
-  var pyreplBanner: boolean;
-  var pyreplStartupScript: string | undefined;
-  var pyreplReadonly: boolean;
-  var pyreplPromptColor: string;
-  var pyreplPygmentsStyle: Record<string, string> | undefined;
-  var pyreplLoadMicropip: (() => Promise<unknown>) | undefined;
-  var pyreplMarkReady: (() => void) | undefined;
-  var pyreplMarkPygmentsReady: (() => void) | undefined;
-  var currentPygmentsLoader: (() => Promise<unknown>) | null;
-  // biome-ignore lint/suspicious/noExplicitAny: Python console from Pyodide
-  var currentBrowserConsole: any;
 }
 
 let pyodidePromise: Promise<PyodideInterface> | null = null;
 let consoleCodePromise: Promise<string> | null = null;
+let consoleSetupPromise: Promise<void> | null = null;
+let micropipPromise: Promise<unknown> | null = null;
+let sessionSetupQueue: Promise<void> = Promise.resolve();
 
-// Queue to serialize REPL initialization (they share globals)
-let initQueue: Promise<void> = Promise.resolve();
+interface BrowserConsoleProxy extends PyProxy {
+  close(): void;
+  push_char(char: number): void;
+}
+
+interface PygmentsLoader {
+  (): Promise<unknown>;
+  destroy(): void;
+}
+
+interface PythonReplSession {
+  browserConsole: BrowserConsoleProxy;
+  loadPygments: PygmentsLoader | null;
+}
 
 type PyreplLifecycleEvent =
   | "pyrepl-terminal-ready"
@@ -294,17 +294,18 @@ function parseConfig(container: HTMLElement): PyreplConfig {
   };
 }
 
-async function getPyodide(): Promise<PyodideInterface> {
+function getPyodide(): Promise<PyodideInterface> {
   if (!pyodidePromise) {
-    const { loadPyodide } = await import("pyodide");
-    pyodidePromise = loadPyodide({
-      indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.2/full/",
-      // Suppress Pyodide's internal logging (Loading/Loaded messages)
-      stdout: () => {},
-      stderr: () => {},
-    });
+    pyodidePromise = import("pyodide").then(({ loadPyodide }) =>
+      loadPyodide({
+        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.2/full/",
+        // Suppress Pyodide's internal logging (Loading/Loaded messages)
+        stdout: () => {},
+        stderr: () => {},
+      }),
+    );
   }
-  return await pyodidePromise;
+  return pyodidePromise;
 }
 
 function getConsoleCode(): Promise<string> {
@@ -312,6 +313,18 @@ function getConsoleCode(): Promise<string> {
     consoleCodePromise = fetch("/python/console.py").then((r) => r.text());
   }
   return consoleCodePromise;
+}
+
+function setupPythonConsole(pyodide: PyodideInterface): Promise<void> {
+  consoleSetupPromise ??= getConsoleCode().then((consoleCode) => {
+    pyodide.runPython(consoleCode);
+  });
+  return consoleSetupPromise;
+}
+
+function loadMicropip(pyodide: PyodideInterface): Promise<unknown> {
+  micropipPromise ??= pyodide.loadPackage("micropip");
+  return micropipPromise;
 }
 
 async function fetchStartupScript(
@@ -340,6 +353,8 @@ export class PyReplEmbed {
   private showButtons: boolean;
   private title: string;
   private showBanner: boolean;
+  private cleanup: (() => void) | null = null;
+  private destroyed = false;
 
   constructor(config: {
     container: HTMLElement;
@@ -388,18 +403,25 @@ export class PyReplEmbed {
     // Create terminal immediately (fast, shows UI)
     const { term, config } = await createTerminal(this.container, startupStart);
 
-    // Queue the Python REPL initialization to avoid race conditions with shared globals
-    initQueue = initQueue.then(() =>
-      createRepl(
-        this.container,
-        term,
-        config,
-        pyodideReady,
-        startupStart,
-        startupScriptReady,
-      ),
+    const cleanup = await createRepl(
+      this.container,
+      term,
+      config,
+      pyodideReady,
+      startupStart,
+      startupScriptReady,
     );
-    await initQueue;
+    if (this.destroyed) {
+      cleanup();
+    } else {
+      this.cleanup = cleanup;
+    }
+  }
+
+  destroy() {
+    this.destroyed = true;
+    this.cleanup?.();
+    this.cleanup = null;
   }
 }
 
@@ -602,89 +624,106 @@ async function createRepl(
   pyodideReady: Promise<PyodideInterface> = getPyodide(),
   startupStart = performance.now(),
   startupScriptReady = fetchStartupScript(config.src),
-) {
+): Promise<() => void> {
   const pyodide = await pyodideReady;
-  let micropipReady: Promise<unknown> | undefined;
-  const loadMicropip = () => {
-    micropipReady ??= pyodide.loadPackage("micropip");
-    return micropipReady;
-  };
-
-  // Preload packages if specified
-  if (config.packages.length > 0) {
-    await loadMicropip();
-    const micropip = pyodide.pyimport("micropip");
-    await micropip.install(config.packages);
-  }
-
-  // Show loaded message (dim gray)
-  const loadedPkgs =
-    config.packages.length > 0
-      ? ` (installed packages: ${config.packages.join(", ")})`
-      : "";
-  const infoLine = `Python 3.13${loadedPkgs}`;
-  if (config.showBanner) {
-    term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
-  }
-
-  // Expose globals to Python
-  globalThis.term = term;
-  globalThis.pyreplTheme = config.themeName;
-  globalThis.pyreplPygmentsFallback = isDarkColor(config.theme.background)
-    ? "catppuccin-mocha"
-    : "catppuccin-latte";
-  globalThis.pyreplInfo = infoLine;
-  globalThis.pyreplReadonly = config.readonly;
-  globalThis.pyreplPromptColor = config.theme.promptColor || "green";
-  globalThis.pyreplPygmentsStyle = config.theme.pygmentsStyle;
-  globalThis.pyreplLoadMicropip = loadMicropip;
-  globalThis.pyreplMarkReady = () =>
-    dispatchLifecycleEvent(container, "pyrepl-ready", startupStart);
-  globalThis.pyreplMarkPygmentsReady = () =>
-    dispatchLifecycleEvent(container, "pyrepl-pygments-ready", startupStart);
-  globalThis.pyreplBanner = config.showBanner;
-
   const startupScript = await startupScriptReady;
-  if (startupScript !== undefined) {
-    globalThis.pyreplStartupScript = startupScript;
+  const previousSessionSetup = sessionSetupQueue;
+  let releaseSessionSetup!: () => void;
+  sessionSetupQueue = new Promise((resolve) => {
+    releaseSessionSetup = resolve;
+  });
+  await previousSessionSetup;
+
+  try {
+    // Package loading and Python session creation both mutate the shared runtime.
+    if (config.packages.length > 0) {
+      await loadMicropip(pyodide);
+      const micropip = pyodide.pyimport("micropip");
+      try {
+        await micropip.install(config.packages);
+      } finally {
+        micropip.destroy();
+      }
+    }
+
+    // Show loaded message (dim gray)
+    const loadedPkgs =
+      config.packages.length > 0
+        ? ` (installed packages: ${config.packages.join(", ")})`
+        : "";
+    const infoLine = `Python 3.13${loadedPkgs}`;
+    if (config.showBanner) {
+      term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
+    }
+
+    // Define the Python console once, then create an explicitly scoped session.
+    await setupPythonConsole(pyodide);
+
+    let resolveSession!: (session: PythonReplSession) => void;
+    let rejectSession!: (error: unknown) => void;
+    const sessionReady = new Promise<PythonReplSession>((resolve, reject) => {
+      resolveSession = resolve;
+      rejectSession = reject;
+    });
+    const startRepl = pyodide.globals.get("start_repl") as PyCallable;
+    try {
+      startRepl({
+        term,
+        startupScript: startupScript ?? null,
+        themeName: config.themeName,
+        pygmentsFallback: isDarkColor(config.theme.background)
+          ? "catppuccin-mocha"
+          : "catppuccin-latte",
+        infoLine,
+        showBanner: config.showBanner,
+        readonly: config.readonly,
+        promptColor: config.theme.promptColor || "green",
+        pygmentsStyle: config.theme.pygmentsStyle ?? null,
+        loadMicropip: () => loadMicropip(pyodide),
+        onReady: (
+          browserConsole: BrowserConsoleProxy,
+          loadPygments: PygmentsLoader | null,
+        ) => {
+          dispatchLifecycleEvent(container, "pyrepl-ready", startupStart);
+          resolveSession({ browserConsole, loadPygments });
+        },
+        onPygmentsReady: () =>
+          dispatchLifecycleEvent(
+            container,
+            "pyrepl-pygments-ready",
+            startupStart,
+          ),
+      });
+    } catch (error) {
+      rejectSession(error);
+      const message =
+        error instanceof Error ? error.stack || error.message : String(error);
+      term.write(`\r\n\x1b[31m${message}\x1b[0m\r\n`);
+      console.error("pyrepl-web: Python REPL failed", error);
+    } finally {
+      startRepl.destroy();
+    }
+    const session = await sessionReady;
+    return finishReplSession(container, term, config, infoLine, session);
+  } finally {
+    releaseSessionSetup();
   }
+}
 
-  // Load and start the Python REPL
-  const consoleCode = await getConsoleCode();
-  pyodide.runPython(consoleCode);
-  pyodide.runPythonAsync("await start_repl()");
-
-  // Wait for Python to set currentBrowserConsole
-  // biome-ignore lint/suspicious/noExplicitAny: Python-set global
-  while (!(globalThis as any).currentBrowserConsole) {
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  // biome-ignore lint/suspicious/noExplicitAny: Python-set global
-  const browserConsole = (globalThis as any).currentBrowserConsole;
-  const loadPygments = globalThis.currentPygmentsLoader;
-
-  // Clear globals so next REPL starts fresh
-  // biome-ignore lint/suspicious/noExplicitAny: Python-set global
-  (globalThis as any).currentBrowserConsole = null;
-  globalThis.currentPygmentsLoader = null;
-  // biome-ignore lint/suspicious/noExplicitAny: Python-set global
-  (globalThis as any).term = null;
-  globalThis.pyreplStartupScript = undefined;
-  globalThis.pyreplTheme = "";
-  globalThis.pyreplPygmentsFallback = "";
-  globalThis.pyreplInfo = "";
-  globalThis.pyreplReadonly = false;
-  globalThis.pyreplPromptColor = "";
-  globalThis.pyreplPygmentsStyle = undefined;
-  globalThis.pyreplLoadMicropip = undefined;
-  globalThis.pyreplMarkReady = undefined;
-  globalThis.pyreplMarkPygmentsReady = undefined;
-  globalThis.pyreplBanner = false;
+function finishReplSession(
+  container: HTMLElement,
+  term: Terminal,
+  config: PyreplConfig,
+  infoLine: string,
+  session: PythonReplSession,
+): () => void {
+  const { browserConsole, loadPygments } = session;
 
   // Only attach input handler if not readonly
+  let inputDisposable: { dispose(): void } | undefined;
   if (!config.readonly) {
     let pygmentsStarted = false;
-    term.onData((data: string) => {
+    inputDisposable = term.onData((data: string) => {
       if (!pygmentsStarted && loadPygments) {
         pygmentsStarted = true;
         void loadPygments();
@@ -721,6 +760,14 @@ async function createRepl(
       term.write("\x1b[32m>>> \x1b[0m");
     });
   }
+
+  return () => {
+    inputDisposable?.dispose();
+    browserConsole.close();
+    browserConsole.destroy();
+    loadPygments?.destroy();
+    term.dispose();
+  };
 }
 
 async function setup() {
@@ -759,15 +806,8 @@ async function setup() {
     }),
   );
 
-  // Queue Python REPL initialization to avoid race conditions with shared globals
-  for (const {
-    container,
-    term,
-    config,
-    startupStart,
-    startupScriptReady,
-  } of repls) {
-    initQueue = initQueue.then(() =>
+  await Promise.all(
+    repls.map(({ container, term, config, startupStart, startupScriptReady }) =>
       createRepl(
         container,
         term,
@@ -776,9 +816,8 @@ async function setup() {
         startupStart,
         startupScriptReady,
       ),
-    );
-  }
-  await initQueue;
+    ),
+  );
 }
 
 init();

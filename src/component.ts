@@ -4,6 +4,8 @@ import { PyReplEmbed } from "./embed.js";
 
 @customElement("py-repl")
 export class PyRepl extends LitElement {
+  private repl: PyReplEmbed | null = null;
+
   static override properties = {
     theme: { type: String },
     packages: { type: String },
@@ -43,11 +45,23 @@ export class PyRepl extends LitElement {
 
   protected override firstUpdated(_changedProperties: PropertyValues): void {
     super.firstUpdated(_changedProperties);
+    this.initializeRepl();
+  }
+
+  override connectedCallback(): void {
+    super.connectedCallback();
+    if (this.hasUpdated && !this.repl) {
+      this.initializeRepl();
+    }
+  }
+
+  private initializeRepl(): void {
     const container = this.querySelector(".pyrepl") as HTMLElement | null;
     if (!container) {
       console.error("pyrepl-web: .pyrepl container not found in <py-repl>");
       return;
     }
+    container.replaceChildren();
     // Mark as initialized to prevent setup() from picking it up
     container.dataset.pyreplInitialized = "true";
     const repl = new PyReplEmbed({
@@ -64,7 +78,18 @@ export class PyRepl extends LitElement {
       title: this.replTitle,
       showBanner: !this.noBanner,
     });
-    repl.init();
+    this.repl = repl;
+    void repl.init().catch((error) => {
+      if (this.repl === repl) {
+        console.error("pyrepl-web: failed to initialize", error);
+      }
+    });
+  }
+
+  override disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this.repl?.destroy();
+    this.repl = null;
   }
 
   override render() {

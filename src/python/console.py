@@ -49,6 +49,8 @@ class BrowserConsole(Console):
         self.posxy = (0, 0)
         self.height, self.width = self.getheightwidth()
         self._resolve_input = None
+        self.input_handler = None
+        self.closed = False
 
     def getheightwidth(self):
         return self.term.rows, self.term.cols
@@ -87,12 +89,9 @@ class BrowserConsole(Console):
         self.event_queue.clear()
 
     def push_char(self, char):
-        self.event_queue.append(char)
-
-        if self._resolve_input:
-            resolve = self._resolve_input
-            self._resolve_input = None
-            resolve()
+        if self.closed or self.input_handler is None:
+            return
+        self.input_handler(chr(char) if isinstance(char, int) else char)
 
     def getpending(self):
         data = ""
@@ -111,16 +110,20 @@ class BrowserConsole(Console):
         return len(self.event_queue) > 0
 
     async def get_event(self, block=True):
+        if self.closed:
+            return None
         if not block and not self.event_queue:
             return None
 
         while not self.event_queue:
             promise = js.Promise.new(
-                create_proxy(
+                create_once_callable(
                     lambda resolve, reject: setattr(self, "_resolve_input", resolve)
                 )
             )
             await promise
+            if self.closed:
+                return None
 
         char = self.event_queue.popleft()
         if isinstance(char, int):
@@ -132,26 +135,34 @@ class BrowserConsole(Console):
         event = Event("key", char_str, raw)
         return event
 
+    def close(self):
+        self.closed = True
+        self.input_handler = None
+        self.event_queue.clear()
+        if self._resolve_input:
+            resolve = self._resolve_input
+            self._resolve_input = None
+            resolve()
+
     def repaint(self):
         pass
 
 
-async def start_repl():
+def start_repl(config):
     # Create a new console for this terminal instance
-    browser_console = BrowserConsole(js.term)
+    browser_console = BrowserConsole(config.term)
 
-    # Capture startup script before JS moves to next REPL and overwrites it
-    startup_script = getattr(js, "pyreplStartupScript", None)
-    theme_name = getattr(js, "pyreplTheme", "catppuccin-mocha")
-    pygments_fallback = getattr(js, "pyreplPygmentsFallback", "catppuccin-mocha")
-    info_line = getattr(js, "pyreplInfo", "Python 3.13 (Pyodide)")
-    show_banner = getattr(js, "pyreplBanner", True)
-    readonly = getattr(js, "pyreplReadonly", False)
-    prompt_color = getattr(js, "pyreplPromptColor", None) or "green"
-    pygments_style_js = getattr(js, "pyreplPygmentsStyle", None)
-    load_micropip = getattr(js, "pyreplLoadMicropip", None)
-    mark_ready = getattr(js, "pyreplMarkReady", None)
-    mark_pygments_ready = getattr(js, "pyreplMarkPygmentsReady", None)
+    startup_script = config.startupScript
+    theme_name = config.themeName
+    pygments_fallback = config.pygmentsFallback
+    info_line = config.infoLine
+    show_banner = config.showBanner
+    readonly = config.readonly
+    prompt_color = config.promptColor or "green"
+    pygments_style_js = config.pygmentsStyle
+    load_micropip = config.loadMicropip
+    on_ready = config.onReady
+    on_pygments_ready = config.onPygmentsReady
 
     # Build prompt strings with configured color
     color_code = color_to_ansi(prompt_color)
@@ -169,8 +180,7 @@ async def start_repl():
     async def load_pygments():
         nonlocal pygments_loaded, lexer, formatter
         try:
-            if load_micropip is not None:
-                await load_micropip()
+            await load_micropip()
             import micropip
 
             await micropip.install(["pygments", "catppuccin[pygments]"])
@@ -205,15 +215,9 @@ async def start_repl():
                 formatter = Terminal256Formatter(style=style)
 
             pygments_loaded = True
-            if mark_pygments_ready is not None:
-                mark_pygments_ready()
+            on_pygments_ready()
         except Exception as e:
             browser_console.term.write(f"[ERROR] Pygments load failed: {e}\r\n")
-
-    # Let JavaScript start Pygments on first user input so highlighting never
-    # competes with REPL initialization on pages with multiple components.
-    if not readonly:
-        js.currentPygmentsLoader = create_once_callable(load_pygments)
 
     def syntax_highlight(code):
         if not code:
@@ -322,30 +326,47 @@ async def start_repl():
         match = re.search(r"[\w.]*$", line)
         return match.group(0) if match else ""
 
-    # Signal that this console has finished setup and JS can initialize the next one.
-    js.currentBrowserConsole = browser_console
-
-    # In readonly mode, don't show prompt or accept input
-    if readonly:
-        if mark_ready is not None:
-            mark_ready()
-        return
-
-    browser_console.term.write(PS1)
-    if mark_ready is not None:
-        mark_ready()
     lines = []
     current_line = ""
-
     history = []
     history_index = 0
+    escape_sequence = ""
 
-    while True:
-        event = await browser_console.get_event(block=True)
-        if event is None:
-            continue
+    def handle_char(char):
+        nonlocal lines, current_line, history_index, escape_sequence
 
-        char = event.data
+        if escape_sequence:
+            escape_sequence += char
+            if escape_sequence == "\x1b[":
+                return
+
+            sequence = escape_sequence
+            escape_sequence = ""
+            if sequence == "\x1b[A" and history:
+                history_index = max(0, history_index - 1)
+                browser_console.term.write("\r\x1b[K")
+                hist_entry = history[history_index]
+                current_line = (
+                    hist_entry.split("\n")[0] if "\n" in hist_entry else hist_entry
+                )
+                browser_console.term.write(PS1 + syntax_highlight(current_line))
+            elif sequence == "\x1b[B" and history:
+                history_index = min(len(history), history_index + 1)
+                browser_console.term.write("\r\x1b[K")
+                if history_index < len(history):
+                    hist_entry = history[history_index]
+                    current_line = (
+                        hist_entry.split("\n")[0] if "\n" in hist_entry else hist_entry
+                    )
+                else:
+                    current_line = ""
+                browser_console.term.write(PS1 + syntax_highlight(current_line))
+            return
+
+        if char == "\x1b":
+            escape_sequence = char
+            return
+
         if char == "\x03":
             # Ctrl+C - interrupt/cancel current input
             browser_console.term.write("^C\r\n")
@@ -353,57 +374,13 @@ async def start_repl():
             current_line = ""
             history_index = len(history)
             browser_console.term.write(PS1)
-            continue
+            return
 
         if char == "\x0c":
             # Ctrl+L - clear screen
             clear()
             browser_console.term.write(PS1 + syntax_highlight(current_line))
-            continue
-
-        if char == "\x1b":
-            # Might be an arrow key
-            event2 = await browser_console.get_event(block=True)
-            if event2 and event2.data == "[":
-                event3 = await browser_console.get_event(block=True)
-                if event3:
-                    if event3.data == "A":
-                        # Up arrow
-                        if history:
-                            history_index = max(0, history_index - 1)
-                            # Clear current line
-                            browser_console.term.write("\r\x1b[K")
-                            hist_entry = history[history_index]
-                            # For multiline entries, only show first line
-                            current_line = (
-                                hist_entry.split("\n")[0]
-                                if "\n" in hist_entry
-                                else hist_entry
-                            )
-                            browser_console.term.write(
-                                PS1 + syntax_highlight(current_line)
-                            )
-                    elif event3.data == "B":
-                        # Down arrow
-                        if history:
-                            history_index = min(len(history), history_index + 1)
-                            # Clear current line
-                            browser_console.term.write("\r\x1b[K")
-                            if history_index < len(history):
-                                hist_entry = history[history_index]
-                                # For multiline entries, only show first line
-                                current_line = (
-                                    hist_entry.split("\n")[0]
-                                    if "\n" in hist_entry
-                                    else hist_entry
-                                )
-                            else:
-                                current_line = ""
-                            browser_console.term.write(
-                                PS1 + syntax_highlight(current_line)
-                            )
-                    # Left and Right arrows can be implemented similarly
-            continue
+            return
 
         if char == "\r":
             browser_console.term.write("\r\n")
@@ -415,7 +392,7 @@ async def start_repl():
                 lines = []
                 current_line = ""
                 browser_console.term.write(PS1)
-                continue
+                return
 
             # If in multiline mode and user entered empty/whitespace line, execute
             if len(lines) > 1 and not current_line.strip():
@@ -437,7 +414,7 @@ async def start_repl():
                 lines = []
                 current_line = ""
                 browser_console.term.write(PS1)
-                continue
+                return
 
             try:
                 code = compile_command(source, "<console>", "single")
@@ -512,3 +489,15 @@ async def start_repl():
             browser_console.term.write("\r\x1b[K")  # Go to start, clear line
             prompt = PS1 if len(lines) == 0 else PS2
             browser_console.term.write(prompt + syntax_highlight(current_line))
+
+    # Explicit proxies remain valid after on_ready returns; JavaScript owns their cleanup.
+    browser_console_proxy = create_proxy(browser_console)
+
+    # In readonly mode, don't show prompt or accept input
+    if readonly:
+        on_ready(browser_console_proxy, None)
+        return
+
+    browser_console.input_handler = handle_char
+    browser_console.term.write(PS1)
+    on_ready(browser_console_proxy, create_once_callable(load_pygments))
