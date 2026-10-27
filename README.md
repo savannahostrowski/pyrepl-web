@@ -3,6 +3,33 @@
 An embeddable Python REPL, powered by Pyodide.
 
 [Live demo](https://playground.fastapicloud.dev/)
+[Documentation](https://playground.fastapicloud.dev/docs/)
+
+## Local site and documentation
+
+With [Bun](https://bun.sh/), [uv](https://docs.astral.sh/uv/), and Python 3.11 or later
+installed:
+
+```sh
+bun install
+bun run dev
+```
+
+Open http://localhost:3000 for the playground and http://localhost:3000/docs/ for
+the documentation. The dev command builds both the component and the docs before
+starting the server.
+
+Documentation lives in `docs/` as Markdown, with Zensical configured in
+`zensical.toml`. Its Python dependencies are locked in the root `uv.lock`, separate
+from the Python runtime development environment in `src/python/`.
+
+After editing the docs, run `bun run docs:build` to refresh the `/docs/` preview.
+For automatic rebuilding while writing, use `bun run docs:dev`, which starts
+Zensical's own preview at http://localhost:8000. That preview serves only the docs;
+use the integrated `/docs/` preview to check links to the playground.
+
+`bun run site:build` builds the complete static website into `out/site/`, including
+the local REPL bundle and documentation.
 
 ## Getting started
 
