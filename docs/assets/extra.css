@@ -1,0 +1,27 @@
+:root {
+  --md-text-font: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --md-code-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: #fbf6f2;
+  --md-default-fg-color: #3b3045;
+  --md-default-fg-color--light: #746b77;
+  --md-primary-fg-color: #86609a;
+  --md-primary-fg-color--light: #bda6cc;
+  --md-primary-fg-color--dark: #604a70;
+  --md-accent-fg-color: #86609a;
+  --md-typeset-a-color: #79518e;
+  --md-code-bg-color: #f2edf4;
+  --md-code-fg-color: #3b3045;
+}
+.md-header { background: #fbf6f2; color: #3b3045; }
+.md-header__button.md-logo img { height: 2rem; width: 2.5rem; }
+.md-typeset h1 { font: 400 2.4rem/1.1 Georgia, "Times New Roman", serif; letter-spacing: -.065rem; color: #3b3045; }
+.md-typeset h2 { font: 400 1.6rem/1.2 Georgia, "Times New Roman", serif; letter-spacing: -.025rem; }
+.md-typeset h3 { font-weight: 600; }
+.md-typeset pre > code { border: 1px solid #e6dce5; border-radius: .6rem; }
+.md-typeset code { border-radius: .2rem; }
+.md-nav__title, .md-nav__link, .md-typeset h2, .md-typeset h3 { text-transform: none; }
+.md-footer { background: #f2edf4; color: #3b3045; }
+.md-footer-meta { background: #eee5f2; }
+.md-footer-meta, .md-footer-meta a, .md-copyright { color: #746b77; }
