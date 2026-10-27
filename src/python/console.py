@@ -332,6 +332,15 @@ def start_repl(config):
     history_index = 0
     escape_sequence = ""
 
+    def redraw_line(prompt=None):
+        if prompt is None:
+            prompt = PS1 if len(lines) == 0 else PS2
+        # Replace the line before erasing any stale suffix. A separate clear
+        # write can leave the prompt blank while highlighting runs.
+        browser_console.term.write(
+            "\r" + prompt + syntax_highlight(current_line) + "\x1b[K"
+        )
+
     def handle_char(char):
         nonlocal lines, current_line, history_index, escape_sequence
 
@@ -344,15 +353,13 @@ def start_repl(config):
             escape_sequence = ""
             if sequence == "\x1b[A" and history:
                 history_index = max(0, history_index - 1)
-                browser_console.term.write("\r\x1b[K")
                 hist_entry = history[history_index]
                 current_line = (
                     hist_entry.split("\n")[0] if "\n" in hist_entry else hist_entry
                 )
-                browser_console.term.write(PS1 + syntax_highlight(current_line))
+                redraw_line(PS1)
             elif sequence == "\x1b[B" and history:
                 history_index = min(len(history), history_index + 1)
-                browser_console.term.write("\r\x1b[K")
                 if history_index < len(history):
                     hist_entry = history[history_index]
                     current_line = (
@@ -360,7 +367,7 @@ def start_repl(config):
                     )
                 else:
                     current_line = ""
-                browser_console.term.write(PS1 + syntax_highlight(current_line))
+                redraw_line(PS1)
             return
 
         if char == "\x1b":
@@ -461,9 +468,7 @@ def start_repl(config):
                     # Single match - complete it
                     completion = completions[0]
                     current_line = current_line[: -len(word)] + completion
-                    browser_console.term.write("\r\x1b[K")
-                    prompt = PS1 if len(lines) == 0 else PS2
-                    browser_console.term.write(prompt + syntax_highlight(current_line))
+                    redraw_line()
                 elif len(completions) > 1:
                     # Multiple matches - show them in columns
                     browser_console.term.write("\r\n")
@@ -480,15 +485,10 @@ def start_repl(config):
         elif char == "\x7f":
             if current_line:
                 current_line = current_line[:-1]
-                browser_console.term.write("\r\x1b[K")
-                prompt = PS1 if len(lines) == 0 else PS2
-                browser_console.term.write(prompt + syntax_highlight(current_line))
+                redraw_line()
         else:
             current_line += char
-            # Clear line and rewrite with highlighting
-            browser_console.term.write("\r\x1b[K")  # Go to start, clear line
-            prompt = PS1 if len(lines) == 0 else PS2
-            browser_console.term.write(prompt + syntax_highlight(current_line))
+            redraw_line()
 
     # Explicit proxies remain valid after on_ready returns; JavaScript owns their cleanup.
     browser_console_proxy = create_proxy(browser_console)

@@ -36,3 +36,7 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Python virtual environments
 .venv
 venv
+__pycache__/
+
+# Generated documentation
+site/

@@ -1,0 +1,35 @@
+[project]
+site_name = "pyrepl-web"
+site_description = "Add a Python REPL to your website."
+site_url = "https://playground.fastapicloud.dev/docs/"
+site_author = "Savannah Ostrowski"
+repo_url = "https://github.com/savannahostrowski/pyrepl-web"
+repo_name = "pyrepl-web"
+docs_dir = "docs"
+site_dir = "site"
+extra_css = ["assets/extra.css"]
+nav = [
+  { "Get started" = "index.md" },
+  { "Configuration" = "configuration.md" },
+  { "Themes" = "themes.md" },
+  { "Packages" = "packages.md" },
+  { "Startup scripts" = "startup-scripts.md" },
+  { "Events" = "events.md" },
+  { "Keyboard shortcuts" = "keyboard-shortcuts.md" },
+  { "Playground" = "/#demo" },
+]
+
+[project.theme]
+variant = "modern"
+font = false
+logo = "assets/snake.svg"
+favicon = "assets/snake.svg"
+features = ["content.code.copy", "navigation.footer", "toc.follow"]
+
+[project.theme.palette]
+scheme = "default"
+primary = "custom"
+accent = "custom"
+
+[project.extra]
+homepage = "/"

@@ -1,61 +1,200 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <title>pyrepl-web test</title>
-    <script>
-        // Register custom themes
-        window.pyreplThemes = {
-            // Full custom theme with pygmentsStyle
-            'tokyo-night': {
-                background: '#1a1b26',
-                foreground: '#a9b1d6',
-                promptColor: '#bb9af7',
-                pygmentsStyle: {
-                    'Token': '#a9b1d6',
-                    'Keyword': '#bb9af7',
-                    'String': '#9ece6a',
-                    'Number': '#ff9e64',
-                    'Comment': '#565f89',
-                    'Name.Function': '#7aa2f7',
-                    'Name.Builtin': '#7dcfff',
-                }
-            },
-            // Minimal dark theme (inherits mocha colors)
-            'minimal-dark': {
-                background: '#0d1117',
-                foreground: '#c9d1d9',
-            },
-            // Minimal light theme (inherits latte colors)
-            'minimal-light': {
-                background: '#ffffff',
-                foreground: '#24292f',
-                headerBackground: 'pink',
-                headerForeground: '#57606a',
-            },
-            // Custom prompt color (hex)
-            'green-prompt': {
-                background: '#1e1e2e',
-                foreground: '#cdd6f4',
-                promptColor: '#50fa7b',
-            },
-            // Custom prompt color (named)
-            'cyan-prompt': {
-                background: '#282a36',
-                foreground: '#f8f8f2',
-                promptColor: 'cyan',
-            },
-        };
-    </script>
-    <script src="/dist/pyrepl.js"></script>
-
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A real Python REPL, right in your browser. Try pyrepl-web live, then add it to your own site with a script and a web component.">
+  <meta name="theme-color" content="#fbf6f2">
+  <title>pyrepl-web — a little Python for your website</title>
+  <style>
+    :root { color-scheme: light; --paper: #fbf6f2; --ink: #3b3045; --muted: #746b77; --line: #e6dce5; --accent: #86609a; --terminal: #302b3b; --mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace; }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 30px; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; -webkit-font-smoothing: antialiased; }
+    a { color: inherit; text-decoration: none; }
+    button { font: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
+    ::selection { background: #e4d4a9; color: var(--ink); }
+    .wrap { width: min(1200px, calc(100% - 96px)); margin-inline: auto; }
+    .nav { min-height: 100px; display: flex; align-items: center; justify-content: space-between;  }
+    .brand { display: inline-flex; align-items: center; gap: 12px; font: 600 18px var(--mono); letter-spacing: -.8px; }
+    .brand-mark { color: var(--accent); font: 700 22px var(--mono); letter-spacing: -5px; padding-right: 5px; }
+    .nav-links { display: flex; align-items: center; gap: 30px; font-size: 13px; }
+    .nav-links a:hover, .text-link:hover { color: var(--accent); }
+    .external { display: inline-flex; gap: 9px; align-items: center; }
+    .hero { padding: 39px 0 43px; display: grid; grid-template-columns: 1fr 320px; gap: 60px; align-items: end; }
+    .hero-title { position: relative; }
+    .snake { width: 92px; height: 78px; display: block; margin: 0 0 18px 4px; transform: rotate(-7deg); }
+    .snake .body { fill: none; stroke: #bda6cc; stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; }
+    .snake .cheek { fill: #ebbac2; }
+    .snake .eye { fill: #3b3045; }
+    h1 { font: 400 clamp(50px, 5.4vw, 73px)/1.02 Georgia, 'Times New Roman', serif; letter-spacing: -2.8px; margin: 0; }
+    h1 em { color: var(--accent); font-weight: 400; }
+    .intro { padding-bottom: 6px; }
+    .intro p { font-size: 16px; line-height: 1.75; color: var(--muted); margin: 0 0 25px; max-width: 310px; }
+    .demo { border: 1px solid #4a4056; border-radius: 17px; overflow: hidden; background: var(--terminal); color: #e9ecdf; box-shadow: 0 7px 0 #e9e0eb; scroll-margin-top: 24px; }
+    .demo-bar { min-height: 51px; padding: 13px 21px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ffffff15; background: #3c3349; gap: 15px; }
+    .demo-title { display: flex; align-items: center; gap: 16px; font: 12px var(--mono); color: #e9deef; }
+    .dots { display: flex; gap: 6px; }
+    .dots i { width: 8px; height: 8px; background: #a8ba9f; border-radius: 50%; }
+    .dots i:first-child { background: #dba9b5; }
+    .dots i:nth-child(2) { background: #e4cf9d; }
+    .status { display: flex; align-items: center; gap: 7px; font: 10px var(--mono); color: #c8bdd1; }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #c4ae78; }
+    .status[data-state="ready"] .status-dot { background: #c0d5b0; }
+    .status[data-state="slow"] .status-dot { background: #e5b2a7; }
+    .demo-body { min-width: 0; }
+    .terminal-scroll { overflow-x: auto; min-width: 0; padding: 15px 12px 5px; scrollbar-color: #80708e var(--terminal); }
+    py-repl { display: block; min-height: 355px; }
+    .demo py-repl .pyrepl { border-radius: 0; box-shadow: none; display: block; background: var(--terminal); min-width: max-content; }
+    .demo-foot { display: flex; align-items: center; justify-content: space-between; padding: 13px 22px; gap: 12px; border-top: 1px solid #ffffff15; color: #c8bace; font: 10px/1.6 var(--mono); }
+    kbd { font: inherit; color: #eee4f3; }
+    .embed-section { padding: 61px 0 65px; display: grid; grid-template-columns: 1fr 1.23fr; gap: 80px; align-items: center; }
+    h2.display { font: 400 46px/1.1 Georgia, serif; letter-spacing: -1.5px; margin: 0 0 22px; }
+    .section-copy > p { color: var(--muted); font-size: 14px; line-height: 1.85; margin: 0 0 25px; max-width: 360px; }
+    .text-link { font-size: 13px; display: inline-flex; align-items: center; gap: 15px; border-bottom: 1px solid #aeb5a4; padding-bottom: 5px; }
+    .code-panel { border: 1px solid var(--line); border-radius: 13px; background: #f2edf4; min-width: 0; }
+    .code-bar { padding: 14px 19px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 15px; color: var(--muted); font: 11px var(--mono); }
+    .copy { color: var(--ink); border: 0; padding: 5px 0 5px 10px; background: transparent; font: 11px var(--mono); cursor: pointer; }
+    .copy:hover { color: var(--accent); }
+    pre { font: 12px/1.9 var(--mono); padding: 25px 23px 31px; margin: 0; overflow-x: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .tag { color: #8e598c; }
+    .attr { color: #647d53; }
+    .string { color: #826748; }
+    .code-caption { border-top: 1px solid var(--line); padding: 12px 19px; color: var(--muted); font: 10px/1.6 var(--mono); }
+    footer { border-top: 1px solid var(--line); padding: 27px 0 32px; display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+    footer .brand { font-size: 13px; }
+    footer p, footer > a { font: 10px/1.6 var(--mono); color: var(--muted); }
+    #announcement { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper); padding: 12px 20px; border-radius: 15px; font-size: 13px; box-shadow: 0 4px 20px #0002; z-index: 3; }
+    #announcement:empty { display: none; }
+    @media (min-width: 1500px) { .hero { padding-top: 70px; padding-bottom: 50px; } }
+    @media (max-width: 1000px) {
+      .wrap { width: calc(100% - 56px); }
+      .hero { grid-template-columns: 1fr 270px; gap: 30px; }
+      h1 { font-size: 60px; letter-spacing: -2.5px; }
+      .embed-section { gap: 40px; }
+      h2.display { font-size: 40px; }
+    }
+    @media (max-width: 650px) {
+      .wrap { width: calc(100% - 36px); }
+      .nav { min-height: 77px; }
+      .brand { font-size: 15px; gap: 9px; }
+      .nav-links { gap: 20px; font-size: 12px; }
+      .hero { grid-template-columns: 1fr; gap: 24px; padding: 38px 0 29px; }
+      h1 { font-size: clamp(45px, 10vw, 62px); letter-spacing: -2px; }
+      .snake { width: 72px; height: 61px; margin-bottom: 15px; }
+      .intro p { max-width: 100%; font-size: 14px; margin-bottom: 19px; }
+      .demo-bar { padding: 14px; }
+      .demo-title { gap: 10px; font-size: 11px; }
+      .status { font-size: 9px; }
+      .terminal-scroll { padding: 11px 3px 5px; }
+      .demo-foot { padding: 12px 15px; flex-wrap: wrap; font-size: 9px; }
+      .demo-foot .desktop-hint { display: none; }
+      .embed-section { grid-template-columns: 1fr; gap: 27px; padding: 43px 0; }
+      h2.display { font-size: 38px; }
+      .section-copy > p { max-width: 100%; }
+      pre { padding: 20px 16px; font-size: 11px; }
+      .code-bar, .code-caption { padding-left: 16px; padding-right: 16px; }
+      footer { flex-wrap: wrap; padding: 24px 0; }
+      footer p { order: 3; width: 100%; margin: 0; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+  <script>
+    window.pyreplThemes = {
+      'landing': {
+        background: '#302b3b', foreground: '#eee4f3', promptColor: '#c0d5b0',
+        pygmentsStyle: { 'Keyword': '#dfb1d9', 'String': '#c0d5b0', 'Number': '#e4cf9d', 'Comment': '#b3a3bf', 'Name.Function': '#b5cee4', 'Name.Builtin': '#dfb1d9' }
+      }
+    };
+  </script>
 </head>
-
 <body>
-    <h1>pyrepl-web</h1>
-    <p>Python in the browser. <a href="/benchmark">View the performance benchmark</a>.</p>
-    <py-repl repl-title="Python REPL"></py-repl>
-</body>
+  <div class="wrap">
+    <header class="nav">
+      <a class="brand" href="#" aria-label="pyrepl-web home"><span class="brand-mark" aria-hidden="true">&gt;&gt;&gt;</span> pyrepl-web</a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="#embed">Get started</a>
+        <a class="nav-docs" href="/docs/">Docs</a>
+        <a class="external" href="https://github.com/savannahostrowski/pyrepl-web">GitHub <span aria-hidden="true">↗</span></a>
+      </nav>
+    </header>
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-title">
+          <svg class="snake" viewBox="0 0 110 90" aria-hidden="true">
+            <path class="body" d="M16 65c5 10 30 11 35 1 5-12-24-12-19-27 4-11 27-12 41-7"/>
+            <path fill="#bda6cc" d="M65 20c8-8 28-6 32 4 5 14-9 24-24 18-10-4-14-13-8-22Z"/>
+            <circle class="eye" cx="79" cy="25" r="2.4"/><circle class="eye" cx="92" cy="27" r="2.4"/>
+            <ellipse class="cheek" cx="75" cy="32" rx="4" ry="2.2"/><ellipse class="cheek" cx="95" cy="34" rx="4" ry="2.2"/>
+            <path d="M82 33q3 4 6 0" fill="none" stroke="#604a70" stroke-width="1.8" stroke-linecap="round"/>
+            <path d="m16 16 1-5 1 5 5 1-5 1-1 5-1-5-5-1Z" fill="#d6b876"/>
+          </svg>
+          <h1 id="hero-title">A little Python<br>for your <em>website.</em></h1>
+        </div>
+        <div class="intro">
+          <p>An embeddable Python REPL, powered by Pyodide. Try it here, then add it to your own page.</p>
+        </div>
+      </section>
+      <section class="demo" id="demo" aria-label="Interactive Python demo">
+        <div class="demo-bar">
+          <div class="demo-title"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span> playground.py</div>
+          <span class="status" id="runtime-status" data-state="loading" role="status"><span class="status-dot" aria-hidden="true"></span><span id="runtime-label">Starting Python…</span></span>
+        </div>
+        <div class="demo-body">
+          <div class="terminal-scroll"><py-repl theme="landing" no-header aria-label="Python terminal"></py-repl></div>
+        </div>
+        <div class="demo-foot"><span><kbd>↵</kbd> run &nbsp; <kbd>Tab</kbd> complete &nbsp; <kbd>↑ ↓</kbd> history <span class="desktop-hint">&nbsp; <kbd>Ctrl+C</kbd> cancel &nbsp; <kbd>Ctrl+L</kbd> clear</span></span></div>
+      </section>
+      <section class="embed-section" id="embed" aria-labelledby="embed-title">
+        <div class="section-copy">
+          <h2 class="display" id="embed-title">Put it on your page.</h2>
+          <p>One script and a &lt;py-repl&gt; tag. That’s all you need. You can also pick a theme, preload packages, or add a Python startup script.</p>
+          <a class="text-link" href="/docs/configuration/">Read the docs <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="code-panel">
+          <div class="code-bar"><span>index.html</span><button class="copy" id="copy-embed" type="button">Copy snippet <span aria-hidden="true">⧉</span></button></div>
+          <pre aria-label="HTML embed snippet"><code><span class="tag">&lt;script</span> <span class="attr">src</span>=<span class="string">"https://cdn.jsdelivr.net/npm/pyrepl-web/dist/pyrepl.js"</span><span class="tag">&gt;&lt;/script&gt;</span>
 
+<span class="tag">&lt;py-repl&gt;&lt;/py-repl&gt;</span></code></pre>
+          <div class="code-caption">Works with plain HTML. No build step needed.</div>
+        </div>
+      </section>
+    </main>
+    <footer><a class="brand" href="#"><span class="brand-mark" aria-hidden="true">&gt;&gt;&gt;</span> pyrepl-web</a><a href="https://github.com/savannahostrowski/pyrepl-web">GitHub ↗</a></footer>
+  </div>
+  <div id="announcement" role="status" aria-live="polite"></div>
+  <script>
+    const status = document.getElementById('runtime-status');
+    const label = document.getElementById('runtime-label');
+    const repl = document.querySelector('py-repl');
+    const slowTimer = setTimeout(() => {
+      if (status.dataset.state === 'ready') return;
+      status.dataset.state = 'slow';
+      label.textContent = 'Still loading · check your connection';
+    }, 45000);
+    repl.addEventListener('pyrepl-ready', () => {
+      clearTimeout(slowTimer);
+      status.dataset.state = 'ready';
+      label.textContent = 'Python is ready';
+    }, { once: true });
+    let announcementTimer;
+    async function copyText(text, success) {
+      try {
+        await navigator.clipboard.writeText(text);
+        const announcement = document.getElementById('announcement');
+        announcement.textContent = success;
+        clearTimeout(announcementTimer);
+        announcementTimer = setTimeout(() => { announcement.textContent = ''; }, 3500);
+      } catch {
+        document.getElementById('announcement').textContent = 'Clipboard unavailable. Select and copy the code instead.';
+      }
+    }
+    document.getElementById('copy-embed').addEventListener('click', () => {
+      copyText('<script src="https://cdn.jsdelivr.net/npm/pyrepl-web/dist/pyrepl.js"><' + '/script>\n\n<py-repl></py-repl>', 'Embed snippet copied.');
+    });
+  </script>
+  <script src="/dist/pyrepl.js"></script>
+</body>
 </html>

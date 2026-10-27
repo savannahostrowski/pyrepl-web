@@ -8,9 +8,12 @@
     "README.md"
   ],
   "scripts": {
-    "dev": "bun run build && bun --hot src/server.ts --watch",
+    "dev": "bun run build && bun run docs:build && bun --hot src/server.ts --watch",
     "build": "bun run build.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "docs:build": "uv run --locked --group docs zensical build --strict",
+    "docs:dev": "uv run --locked --group docs zensical serve",
+    "site:build": "bun run build && bun run docs:build && bun run build-site.ts"
   },
   "keywords": [
     "python",
