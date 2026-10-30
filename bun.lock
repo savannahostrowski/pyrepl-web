@@ -7,7 +7,7 @@
       "dependencies": {
         "@xterm/xterm": "^6.0.0",
         "lit": "^3.3.2",
-        "pyodide": "^0.29.2",
+        "pyodide": "^314.0.2",
       },
       "devDependencies": {
         "@biomejs/biome": "^2.3.11",
@@ -111,7 +111,7 @@
 
     "pidtree": ["pidtree@0.6.0", "", { "bin": { "pidtree": "bin/pidtree.js" } }, "sha512-eG2dWTVw5bzqGRztnHExczNxt5VGsE6OwTeCG3fdUf9KBsZzO3R5OIIIzWR+iZA0NtZ+RDVdaoE2dK1cn6jH4g=="],
 
-    "pyodide": ["pyodide@0.29.2", "", { "dependencies": { "@types/emscripten": "^1.41.4", "ws": "^8.5.0" } }, "sha512-q/Fnbmiwlw80GfaG74gTbZ6hXOYHwZ1wCDZzE03+tzQYDP1wKEqrSqmIuLQRSYixFFdNdlGEinoGYcDnulwp5g=="],
+    "pyodide": ["pyodide@314.0.2", "", { "dependencies": { "@types/emscripten": "^1.41.4", "ws": "^8.5.0" } }, "sha512-rXkXOriXhzRkEV/coVGELjz4da77oNQEOu8hOf8dtBHEKOzqoIAmSJGeKuPl4wbLDv9EDibfKOchnC73CVX4DQ=="],
 
     "restore-cursor": ["restore-cursor@5.1.0", "", { "dependencies": { "onetime": "^7.0.0", "signal-exit": "^4.1.0" } }, "sha512-oMA2dcrw6u0YfxJQXm342bFKX/E4sG9rbTzO9ptUcR/e8A33cHuvStiYOwH7fszkZlZ1z/ta9AAoPk2F4qIOHA=="],
 

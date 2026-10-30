@@ -261,7 +261,7 @@ async function getPyodide(): Promise<PyodideInterface> {
   if (!pyodidePromise) {
     const { loadPyodide } = await import("pyodide");
     pyodidePromise = loadPyodide({
-      indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.2/full/",
+      indexURL: "https://cdn.jsdelivr.net/pyodide/v314.0.2/full/",
       // Suppress Pyodide's internal logging (Loading/Loaded messages)
       stdout: () => {},
       stderr: () => {},
@@ -543,7 +543,10 @@ async function createRepl(
     config.packages.length > 0
       ? ` (installed packages: ${config.packages.join(", ")})`
       : "";
-  const infoLine = `Python 3.13${loadedPkgs}`;
+  const pyVersion = await pyodide.runPythonAsync(
+    "import sys; sys.version.split()[0]",
+  );
+  const infoLine = `${pyVersion}${loadedPkgs}`;
   if (config.showBanner) {
     term.write(`\x1b[90m${infoLine}\x1b[0m\r\n`);
   }

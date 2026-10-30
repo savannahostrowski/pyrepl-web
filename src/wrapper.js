@@ -10,7 +10,7 @@
     preload.rel = "preload";
     preload.as = "fetch";
     preload.href =
-      "https://cdn.jsdelivr.net/pyodide/v0.29.2/full/pyodide.asm.wasm";
+      "https://cdn.jsdelivr.net/pyodide/v314.0.2/full/pyodide.asm.wasm";
     preload.crossOrigin = "anonymous";
     document.head.appendChild(preload);
 

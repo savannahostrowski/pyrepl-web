@@ -144,7 +144,7 @@ async def start_repl():
     startup_script = getattr(js, "pyreplStartupScript", None)
     theme_name = getattr(js, "pyreplTheme", "catppuccin-mocha")
     pygments_fallback = getattr(js, "pyreplPygmentsFallback", "catppuccin-mocha")
-    info_line = getattr(js, "pyreplInfo", "Python 3.13 (Pyodide)")
+    info_line = getattr(js, "pyreplInfo", "Python (Pyodide)")
     show_banner = getattr(js, "pyreplBanner", True)
     readonly = getattr(js, "pyreplReadonly", False)
     prompt_color = getattr(js, "pyreplPromptColor", None) or "green"
